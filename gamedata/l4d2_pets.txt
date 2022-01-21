@@ -1,0 +1,115 @@
+"Games"
+{
+	"#default"
+	{
+		"Functions"
+		{
+			"SurvivorBehavior::SelectMoreDangerousThreat"
+			{
+				"signature"		"SurvivorBehavior::SelectMoreDangerousThreat"
+				"callconv"		"thiscall"
+				"return"		"cbaseentity"
+				"this"			"ignore"
+				"arguments"
+				{
+					"a1"	
+					{
+						"type"	"cbaseentity"
+					}
+					"a2"
+					{
+						"type"	"cbaseentity"
+					}
+					"a3"
+					{
+						"type"	"cbaseentity"
+					}
+					"a4"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
+			"L4D1SurvivorBehavior::SelectMoreDangerousThreat"
+			{
+				"signature"		"L4D1SurvivorBehavior::SelectMoreDangerousThreat"
+				"callconv"		"thiscall"
+				"return"		"cbaseentity"
+				"this"			"ignore"
+				"arguments"
+				{
+					"a1"	
+					{
+						"type"	"cbaseentity"
+					}
+					"a2"
+					{
+						"type"	"cbaseentity"
+					}
+					"a3"
+					{
+						"type"	"cbaseentity"
+					}
+					"a4"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
+			"SurvivorAttack::SelectTarget"
+			{
+				"signature"		"SurvivorAttack::SelectTarget"
+				"callconv"		"thiscall"
+				"return"		"cbaseentity"
+				"this"			"ignore"
+				"arguments"
+				{
+					"a1"	
+					{
+						"type"	"int"
+					}
+				}
+			}
+		}
+	}
+	"left4dead2"
+	{
+		"Signatures"
+		{
+			/*
+			 *	SurvivorBehavior::SelectMoreDangerousThreat(INextBot const*,CBaseCombatCharacter const*,CBaseCombatCharacter*,CBaseCombatCharacter*)
+			 *	Windows sig are maybe switched between this and the next one, IDK but both are required and require same params
+			 */
+			"SurvivorBehavior::SelectMoreDangerousThreat"
+			{
+				"library"	"server"
+				"linux"		"@_ZNK16SurvivorBehavior25SelectMoreDangerousThreatEPK8INextBotPK20CBaseCombatCharacterPS3_S6_"
+				"windows"	"\x55\x8B\x2A\x51\x53\x89\x2A\x2A\x8B\x2A\x2A\x8B\x2A\x8B\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\xAC"
+				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? AC */
+				/* Search: No strings, use Vtable to find it */
+			}
+			/*
+			 *	L4D1SurvivorBehavior::SelectMoreDangerousThreat(INextBot const*,CBaseCombatCharacter const*,CBaseCombatCharacter*,CBaseCombatCharacter*)
+			 */
+			"L4D1SurvivorBehavior::SelectMoreDangerousThreat"
+			{
+				"library"	"server"
+				"linux"		"@_ZNK20L4D1SurvivorBehavior25SelectMoreDangerousThreatEPK8INextBotPK20CBaseCombatCharacterPS3_S6_"
+				"windows"	"\x55\x8B\x2A\x51\x53\x89\x2A\x2A\x8B\x2A\x2A\x8B\x2A\x8B\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x6C"
+				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 6C */
+				/* Search: No strings, use Vtable to find it */
+			}
+			/*
+			 *	SurvivorAttack::SelectTarget(SurvivorBot *)
+			 */
+			"SurvivorAttack::SelectTarget"
+			{
+				"library"	"server"
+				"linux"		"@_ZN14SurvivorAttack12SelectTargetEP11SurvivorBot"
+				"windows"	"\x55\x8B\x2A\x83\x2A\x2A\x53\x56\x8B\x2A\x2A\x8B\x2A\x8B\x90\x2A\x2A\x2A\x2A\x8B\x2A\x57"
+				/* 55 8B ? 83 ? ? 53 56 8B ? ? 8B ? 8B 90 ? ? ? ? 8B ? 57 */
+				/* Search: "Looking at melee shove target" to find SurvivorAttack::Update find target function from the calls */
+			}
+		}
+	}
+}
