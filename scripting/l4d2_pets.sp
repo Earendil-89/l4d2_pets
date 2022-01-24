@@ -4,7 +4,7 @@
  * -------------------------------------------------------------------------------- *
  *  Author      :   Eärendil                                                        *
  *  Descrp      :   Survivors can have a zombie pet following them                  *
- *  Version     :   1.0                                                             *
+ *  Version     :   1.1 (beta 1)                                                    *
  *  Link        :   https://forums.alliedmods.net/showthread.php?t=336006           *
  * ================================================================================ *
  *                                                                                  *
@@ -33,9 +33,10 @@
 #include <left4dhooks>
 
 #define FCVAR_FLAGS FCVAR_NOTIFY
-#define PLUGIN_VERSION "1.0"
+#define PLUGIN_VERSION "1.1b01"
 #define GAMEDATA "l4d2_pets"
 #define PET_LIMIT 16
+#define	CHECK_TICKS 75
 
 ConVar g_hAllow;
 ConVar g_hGameModes;			
@@ -52,7 +53,8 @@ int g_iFlags;
 int g_iGlobPetLim;
 int g_iPlyPetLim;
 int g_iOwner[MAXPLAYERS+1];		// Who owns this pet?
-Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget;
+int g_iNextCheck[MAXPLAYERS+1];
+Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget, g_hDetAbilityCreate;
 
 // Plugin Info
 public Plugin myinfo =
@@ -100,7 +102,7 @@ public void OnPluginStart()
 	
 	RegConsoleCmd("sm_pet", CmdSayPet, "Create a charger pet that will follow survivor.");
 	
-	// Setting DHooks
+	// Setting DHooks, not enabling
 	char sPath[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, sPath, sizeof(sPath), "gamedata/%s.txt", GAMEDATA);
 	if( FileExists(sPath) == false ) SetFailState("\n==========\nMissing required file: \"%s\".\nRead installation instructions again.\n==========", sPath);
@@ -116,6 +118,9 @@ public void OnPluginStart()
 	
 	g_hDetThreatL4D1 = DHookCreateFromConf(hGameData, "L4D1SurvivorBehavior::SelectMoreDangerousThreat");
 	if( !g_hDetThreat ) SetFailState("Failed to find \"L4D1SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
+	
+	g_hDetAbilityCreate = DHookCreateFromConf(hGameData, "CBaseAbility::OnTouch");
+	if( !g_hDetAbilityCreate ) SetFailState("Failed to find \"CBaseAbility::OnTouch\" signature.");
 	
 	delete hGameData;
 }
@@ -138,10 +143,7 @@ public void OnClientDisconnect(int client)
 	for( int i = 1; i < MaxClients; i++ )
 	{
 		if( g_iOwner[i] != 0 )
-		{
-			g_iOwner[i] = 0;
-			ForcePlayerSuicide(i);
-		}
+			KillPet(i);
 	}
 }
 
@@ -217,6 +219,11 @@ void SwitchPlugin()
 
 		if( !DHookEnableDetour(g_hDetTarget, true, SelectTarget_Post) )
 			SetFailState("Failed to detour \"SurvivorAttack::SelectTarget\".");	
+			
+		if( !DHookEnableDetour(g_hDetAbilityCreate, false, AbilityCreate) )
+			SetFailState("Failed to detour \"CBaseAbility::OnTouch\".");
+		
+		AddNormalSoundHook(SoundHook);
 	}
 	
 	if( g_bPluginOn == true && (g_hAllow.BoolValue == false || g_bAllowedGamemode == false) )
@@ -230,15 +237,14 @@ void SwitchPlugin()
 		DHookDisableDetour(g_hDetThreat,		true, SelectThreat_Post);
 		DHookDisableDetour(g_hDetThreatL4D1,	true, SelectThreat_Post);
 		DHookDisableDetour(g_hDetTarget,		true, SelectTarget_Post);
+		DHookDisableDetour(g_hDetAbilityCreate, false, AbilityCreate);
 		
 		for( int i = 1; i < MaxClients; i++ )
 		{
 			if( g_iOwner[i] != 0 )
-			{
-				g_iOwner[i] = 0;
-				ForcePlayerSuicide(i);
-			}
+				KillPet(i);
 		}
+		RemoveNormalSoundHook(SoundHook);
 	}
 }
 
@@ -307,6 +313,22 @@ public MRESReturn SelectTarget_Post(DHookReturn hReturn, DHookParam hParams)
 	return MRES_Ignored;
 }
 
+/**
+ *	Detour callback for CBaseAbility::OnCreate(CTerrorPlayer *)
+ *	This functions creates the ability of the zombie, if blocked, zombie can't use its ability to attack survivors
+ *	Its needed because jockey can use its ability even if its blocked with OnPlayerRunCmd
+ */
+public MRESReturn AbilityCreate(int pThis, DHookParam hParams)
+{	
+	int zombie = GetEntPropEnt(pThis, Prop_Send, "m_owner");
+	if( g_iOwner[zombie] != 0 )
+	{
+		int target = DHookGetParam(hParams, 1);
+		if( target > 0 && target <= MaxClients && GetClientTeam(target) == 2)
+			return MRES_Supercede;
+	}
+	return MRES_Ignored;
+}
 //==========================================================================================
 //											Events & Hooks
 //==========================================================================================
@@ -337,10 +359,7 @@ public Action Event_Player_Death(Event event, const char[] name, bool dontBroadc
 		{
 			switch( g_hPetFree.IntValue )
 			{
-				case 0:{
-					ForcePlayerSuicide(i);
-					g_iOwner[i] = 0;
-				}
+				case 0: KillPet(i);
 				case 1: TransferPet(i);
 				case 2: WildPet(i);
 			}
@@ -358,10 +377,7 @@ public Action Event_Player_Replaced(Event event, const char[] name, bool dontBro
 		for( int i = 1; i <= MaxClients; i++ )
 		{
 			if( g_iOwner[i] == client )
-			{
-				ForcePlayerSuicide(i);
-				g_iOwner[i] = 0;
-			}
+				KillPet(i);
 		}	
 		return Plugin_Continue;
 	}
@@ -379,7 +395,7 @@ public Action Event_Bot_Replaced(Event event, const char[] name, bool dontBroadc
 	int bot = GetClientOfUserId(event.GetInt("bot"));
 	int client = GetClientOfUserId(event.GetInt("player"));
 	
-	for( int i = 1; i < MaxClients; i++ )
+	for( int i = 1; i <= MaxClients; i++ )
 	{
 		if( g_iOwner[i] == bot )
 			g_iOwner[i] = client;
@@ -391,8 +407,32 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 {
 	if( g_iOwner[client] == 0) return Plugin_Continue;
 	
-	if( buttons & IN_ATTACK ) buttons &= ~IN_ATTACK;
-	if( buttons & IN_ATTACK2 ) buttons &= ~IN_ATTACK2;
+	if( buttons & IN_ATTACK ) buttons &= ~IN_ATTACK;	// Main ability, allways block
+
+	if( buttons & IN_ATTACK2 )	// Check survivor target position, if its very close block melee, if not is blocked and is trying to break a door or something
+	{
+		if( ++g_iNextCheck[client] >= CHECK_TICKS ) // Instead of checking positions between pet and owner every time, do it every X attempts, reduces CPU usage
+		{
+			g_iNextCheck[client] = 0;
+			float vPetPos[3], vOwnerPos[3];
+			GetClientAbsOrigin(client, vPetPos);
+			GetClientAbsOrigin(g_iOwner[client], vOwnerPos);
+			if( GetVectorDistance(vPetPos, vOwnerPos, true) > 16834.0 ) // More than 128 game untis between pet and owner
+				return Plugin_Changed;
+		}
+		buttons &= ~IN_ATTACK2;
+	}
+	
+	return Plugin_Changed;
+}
+
+public Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags)
+{
+	if( !entity || entity > MaxClients )
+		return Plugin_Continue;
+		
+	if( g_iOwner[entity] != 0 )
+		pitch = 150;
 	
 	return Plugin_Changed;
 }
@@ -454,10 +494,7 @@ public Action CmdSayPet(int client, int args)
 			for( int i = 1; i < MaxClients; i++ )
 			{
 				if( g_iOwner[i] == client )
-				{
-					ForcePlayerSuicide(i);
-					g_iOwner[i] = 0;
-				}
+					KillPet(i);
 			}
 			ReplyToCommand(client, "[SM] Removed all your pets.");
 		}
@@ -492,16 +529,16 @@ bool SpawnPet(int client)
 	bool bReturn;
 	float vPos[3];
 	
-	if( !L4D_GetRandomPZSpawnPosition(client, 6, 5, vPos) )	// Try to get a random position to spawn the pet
+	if( !L4D_GetRandomPZSpawnPosition(client, 5, 5, vPos) )	// Try to get a random position to spawn the pet
 		GetClientAbsOrigin(client, vPos);
 		
-	L4D2_SpawnSpecial(6, vPos, NULL_VECTOR);
+	L4D2_SpawnSpecial(5, vPos, NULL_VECTOR);
 	for( int i = MaxClients; i > 0; i-- ) // Reverse loop from last connected player to first one
 	{
 		if( !IsClientInGame(i) || !IsPlayerAlive(i) || GetClientTeam(i) != 3  || !IsFakeClient(i) )
 			continue;
 			
-		if( GetEntProp(i, Prop_Send, "m_zombieClass") == 6 )
+		if( GetEntProp(i, Prop_Send, "m_zombieClass") == 5 )
 		{
 			g_iOwner[i] = client;
 			SetEntityRenderMode(i, RENDER_TRANSTEXTURE);	// Set rendermode
@@ -509,9 +546,11 @@ bool SpawnPet(int client)
 			SetEntProp(i, Prop_Send, "m_iGlowType", 3);	// Make pet glow green
 			SetEntProp(i, Prop_Send, "m_nGlowRange", 5000);
 			SetEntProp(i, Prop_Send, "m_glowColorOverride", 39168);	// Glow color green
+			SetEntPropFloat(i, Prop_Send, "m_flModelScale", 0.65);
 			SetEntProp(i, Prop_Send, "m_CollisionGroup", 1); // Prevent collisions with players
 			SDKHook(i, SDKHook_TraceAttack, OnShootPet);	// Allows bullets to pass through the pet
 			SDKHook(i, SDKHook_OnTakeDamage, OnHurtPet);	// Prevents pet from taking any type of damage from survivors
+//			RemoveJockeyLeap(i);
 			bReturn = true;
 			break;
 		}
@@ -558,8 +597,7 @@ void TransferPet(int pet)
 	
 	if( totalHumans == 0 ) // No players? Kill pet
 	{
-		g_iOwner[pet] = 0;
-		ForcePlayerSuicide(pet);
+		KillPet(pet);
 		return;
 	}
 	
@@ -587,9 +625,34 @@ int FirstFirstCommonAvailable()
 
 	return 0;
 }
+
+void KillPet(int pet)
+{
+	if( IsClientInGame(pet) && IsPlayerAlive(pet) && IsFakeClient(pet) ) // Just in case is not an alive bot here
+		ForcePlayerSuicide(pet);
+		
+	g_iOwner[pet] = 0;
+	g_iNextCheck[pet] = 0;
+}
+
+// Finds Jockey leap ability and removes entity, this will prevent jockey from grabbing survivors
+void RemoveJockeyLeap(int client)
+{
+	int i = -1;
+	while( (i = FindEntityByClassname(i, "ability_leap")) != -1 )
+	{
+		if( GetEntPropEnt(i, Prop_Send, "m_owner") == client )
+		{
+			RemoveEntity(i);
+			return;
+		}
+	}
+}
 /*============================================================================================
 									Changelog
 ----------------------------------------------------------------------------------------------
-* 1.0	(21-Jan-2021)
+* 1.0.1  (21-Jan-2022)
+	- Pets can attempt to destroy obstacles.
+* 1.0	 (21-Jan-2021)
 	- First release
 ============================================================================================*/
