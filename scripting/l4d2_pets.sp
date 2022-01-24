@@ -54,7 +54,7 @@ int g_iGlobPetLim;
 int g_iPlyPetLim;
 int g_iOwner[MAXPLAYERS+1];		// Who owns this pet?
 int g_iNextCheck[MAXPLAYERS+1];
-Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget, g_hDetAbilityCreate;
+Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget, g_hDetLeap;
 
 // Plugin Info
 public Plugin myinfo =
@@ -119,8 +119,8 @@ public void OnPluginStart()
 	g_hDetThreatL4D1 = DHookCreateFromConf(hGameData, "L4D1SurvivorBehavior::SelectMoreDangerousThreat");
 	if( !g_hDetThreat ) SetFailState("Failed to find \"L4D1SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
 	
-	g_hDetAbilityCreate = DHookCreateFromConf(hGameData, "CBaseAbility::OnTouch");
-	if( !g_hDetAbilityCreate ) SetFailState("Failed to find \"CBaseAbility::OnTouch\" signature.");
+	g_hDetLeap = DHookCreateFromConf(hGameData, "CLeap::OnTouch");
+	if( !g_hDetLeap ) SetFailState("Failed to find \"CLeap::OnTouch\" signature.");
 	
 	delete hGameData;
 }
@@ -220,8 +220,8 @@ void SwitchPlugin()
 		if( !DHookEnableDetour(g_hDetTarget, true, SelectTarget_Post) )
 			SetFailState("Failed to detour \"SurvivorAttack::SelectTarget\".");	
 			
-		if( !DHookEnableDetour(g_hDetAbilityCreate, false, AbilityCreate) )
-			SetFailState("Failed to detour \"CBaseAbility::OnTouch\".");
+		if( !DHookEnableDetour(g_hDetLeap, false, LeapJockey) )
+			SetFailState("Failed to detour \"CLeap::OnTouch\".");
 		
 		AddNormalSoundHook(SoundHook);
 	}
@@ -237,7 +237,7 @@ void SwitchPlugin()
 		DHookDisableDetour(g_hDetThreat,		true, SelectThreat_Post);
 		DHookDisableDetour(g_hDetThreatL4D1,	true, SelectThreat_Post);
 		DHookDisableDetour(g_hDetTarget,		true, SelectTarget_Post);
-		DHookDisableDetour(g_hDetAbilityCreate, false, AbilityCreate);
+		DHookDisableDetour(g_hDetLeap,			false, LeapJockey);
 		
 		for( int i = 1; i < MaxClients; i++ )
 		{
@@ -314,11 +314,14 @@ public MRESReturn SelectTarget_Post(DHookReturn hReturn, DHookParam hParams)
 }
 
 /**
- *	Detour callback for CBaseAbility::OnCreate(CTerrorPlayer *)
- *	This functions creates the ability of the zombie, if blocked, zombie can't use its ability to attack survivors
- *	Its needed because jockey can use its ability even if its blocked with OnPlayerRunCmd
+ *	Detour callback for CLeap::OnTouch(CBaseEntity *)
+ *	Just called when Jockey ability "touches" another entity
+ *	Jockey works different than other SI. Killing or blocking permanently jockey ability freezes it
+ *	And jockey can bypass OnPlayerRunCmd blocks and attack players
+ *	This prevents jockey to grab survivors but won't prevent him from trying to grab a survivor
+ *	So the jockey will jump constantly around its owner
  */
-public MRESReturn AbilityCreate(int pThis, DHookParam hParams)
+public MRESReturn LeapJockey(int pThis, DHookParam hParams)
 {	
 	int zombie = GetEntPropEnt(pThis, Prop_Send, "m_owner");
 	if( g_iOwner[zombie] != 0 )
@@ -636,7 +639,7 @@ void KillPet(int pet)
 }
 
 // Finds Jockey leap ability and removes entity, this will prevent jockey from grabbing survivors
-void RemoveJockeyLeap(int client)
+stock void RemoveJockeyLeap(int client)
 {
 	int i = -1;
 	while( (i = FindEntityByClassname(i, "ability_leap")) != -1 )
@@ -651,6 +654,7 @@ void RemoveJockeyLeap(int client)
 /*============================================================================================
 									Changelog
 ----------------------------------------------------------------------------------------------
+* 1.1	DEVELOPEMENT
 * 1.0.1  (21-Jan-2022)
 	- Pets can attempt to destroy obstacles.
 * 1.0	 (21-Jan-2021)
