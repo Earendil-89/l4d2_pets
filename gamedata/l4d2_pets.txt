@@ -70,6 +70,20 @@
 					}
 				}
 			}
+			"CBaseAbility::OnTouch"
+			{
+				"signature"		"CBaseAbility::OnTouch"
+				"callconv"		"thiscall"
+				"return"		"void"
+				"this"			"entity"
+				"arguments"
+				{
+					"a1"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
 		}
 	}
 	"left4dead2"
@@ -110,6 +124,15 @@
 				/* 55 8B ? 83 ? ? 53 56 8B ? ? 8B ? 8B 90 ? ? ? ? 8B ? 57 */
 				/* Search: "Looking at melee shove target" to find SurvivorAttack::Update find target function from the calls */
 			}
+			/*
+			 *	CBaseAbility::OnTouch(CBaseEntity *)
+			 */
+			 "CBaseAbility::OnTouch"
+			 {
+				"library"	"server"
+				"linux"		"@_ZN5CLeap7OnTouchEP11CBaseEntity"
+				"windows"	""
+			 }
 		}
 	}
 }
