@@ -70,7 +70,7 @@
 					}
 				}
 			}
-			"CBaseAbility::OnTouch"
+			"CLeap::OnTouch"
 			{
 				"signature"		"CBaseAbility::OnTouch"
 				"callconv"		"thiscall"
@@ -125,9 +125,9 @@
 				/* Search: "Looking at melee shove target" to find SurvivorAttack::Update find target function from the calls */
 			}
 			/*
-			 *	CBaseAbility::OnTouch(CBaseEntity *)
+			 *	CLeap::OnTouch(CBaseEntity *)
 			 */
-			 "CBaseAbility::OnTouch"
+			 "CLeap::OnTouch"
 			 {
 				"library"	"server"
 				"linux"		"@_ZN5CLeap7OnTouchEP11CBaseEntity"
