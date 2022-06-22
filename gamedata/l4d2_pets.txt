@@ -72,7 +72,7 @@
 			}
 			"CLeap::OnTouch"
 			{
-				"signature"		"CBaseAbility::OnTouch"
+				"signature"		"CLeap::OnTouch"
 				"callconv"		"thiscall"
 				"return"		"void"
 				"this"			"entity"
@@ -110,7 +110,7 @@
 				"library"	"server"
 				"linux"		"@_ZNK20L4D1SurvivorBehavior25SelectMoreDangerousThreatEPK8INextBotPK20CBaseCombatCharacterPS3_S6_"
 				"windows"	"\x55\x8B\x2A\x51\x53\x89\x2A\x2A\x8B\x2A\x2A\x8B\x2A\x8B\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x6C"
-				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 6C */
+				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 7C */
 				/* Search: No strings, use Vtable to find it */
 			}
 			/*
@@ -127,12 +127,23 @@
 			/*
 			 *	CLeap::OnTouch(CBaseEntity *)
 			 */
-			 "CLeap::OnTouch"
-			 {
+			"CLeap::OnTouch"
+			{
 				"library"	"server"
 				"linux"		"@_ZN5CLeap7OnTouchEP11CBaseEntity"
-				"windows"	""
-			 }
+				"windows"	"\x55\x8B\x2A\x51\x8B\x2A\x2A\x2A\x2A\x2A\x89"
+				/* 55 8B ? 51 8B ? ? ? ? ? 89 */
+			}
+			/*
+			 *	CTerrorPlayer::OnHitByVomitJar(CBaseCombatCharacter *)
+			 */
+			"CTerrorPlayer::OnHitByVomitJar"
+			{
+				"library"	"server"
+				"linux"		"_ZN13CTerrorPlayer15OnHitByVomitJarEP20CBaseCombatCharacter"
+				"windows"	"\x55\x8B\x2A\x83\x2A\x2A\x56\x8B\x2A\xE8\x2A\x2A\x2A\x2A\x84\x2A\x74\x2A\x8B\x2A\x8B\x2A\x2A\x2A\x2A\x2A\x8B\x2A\xFF\x2A\x84"
+				/* 55 8B ? 83 ? ? 56 8B ? E8 ? ? ? ? 84 ? 74 ? 8B ? 8B ? ? ? ? ? 8B ? FF ? 84 */
+			}
 		}
 	}
 }
