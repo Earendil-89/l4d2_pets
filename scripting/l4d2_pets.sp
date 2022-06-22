@@ -50,6 +50,7 @@ ConVar g_hJockSize;
 ConVar g_hJockPitch;
 ConVar g_hPetAttack;
 ConVar g_hPetDist;
+ConVar g_hPetDmg;
 
 bool g_bAllowedGamemode;
 bool g_bPluginOn;
@@ -93,12 +94,13 @@ public void OnPluginStart()
 	g_hGameModes =	CreateConVar("l4d2_pets_gamemodes",				"",						"Enable plugin in these gamemodes, separated by commas, no spaces.", FCVAR_FLAGS);
 	g_hFlags =		CreateConVar("l4d2_pets_flags",					"",						"Flags required for a player to create a pet, empty to allow everyone.", FCVAR_FLAGS);
 	g_hGlobPetLim =	CreateConVar("l4d2_pets_global_limit",			"4",					"Maximum amount of pets allowed in game.", FCVAR_FLAGS, true, 0.0, true, float(PET_LIMIT));
-	g_hPlyPetLim =	CreateConVar("l4d2_pets_player_limit",			"1",					"Maximum amount of pets each player can have.", FCVAR_FLAGS, true, 0.0, true, float(PET_LIMIT));
+	g_hPlyPetLim =	CreateConVar("l4d2_pets_player_limit",			"1",					"Maximum amount of pets allowed per player.", FCVAR_FLAGS, true, 0.0, true, float(PET_LIMIT));
 	g_hPetFree =	CreateConVar("l4d2_pets_ownerdeath_action",		"0",					"What will happen to the pet if its owner dies?\n0 = Kill pet.\n1 = Transfer to random survivor.\n2 = Make it wild.", FCVAR_FLAGS, true, 0.0, true, 2.0);
-	g_hPetColor =	CreateConVar("l4d2_pets_opacity",				"235",					"Opacity of the pet.", FCVAR_FLAGS, true, 0.0, true, 255.0);
+	g_hPetColor =	CreateConVar("l4d2_pets_opacity",				"235",					"Opacity of the pet.\n0 = Invisible. 255 = Full opaque.", FCVAR_FLAGS, true, 0.0, true, 255.0);
 	g_hJockSize =	CreateConVar("l4d2_pets_size",					"0.55",					"(JOCKEYS ONLY) Scale pets by this amount", FCVAR_FLAGS, true, 0.1, true, 5.0);
 	g_hJockPitch =	CreateConVar("l4d2_pets_pitch",					"150",					"Zombie sound pitch, default pitch: 100.", FCVAR_FLAGS, true, 0.0, true, 255.0);
-	g_hPetAttack =	CreateConVar("l4d2_pets_attack",				"2",					"Allow pets to attack other SI.\n0 = Don't allow.\n1 = Only if SI that attack its owner.\n2 = The closest SI to its owner.", FCVAR_FLAGS, true, 0.0, true, 1.0);
+	g_hPetAttack =	CreateConVar("l4d2_pets_attack",				"2",					"Allow pets to attack other SI.\n0 = Don't allow.\n1 = Only if the SI attacks its owner.\n2 = The closest SI to its owner.", FCVAR_FLAGS, true, 0.0, true, 1.0);
+	g_hPetDmg =		CreateConVar("l4d2_pets_dmg_scale",				"5.0",					"Multiply pet damage caused to other SI by this value.", FCVAR_FLAGS, true, 0.0, true, 100.0);
 	g_hPetDist =	CreateConVar("l4d2_pets_target_dist",			"400",					"Radius around the survivor to allow pets to attack enemy SI.", FCVAR_FLAGS, true, 0.0, true, 2000.0);
 
 	g_hCurrGamemode = FindConVar("mp_gamemode");
@@ -320,9 +322,9 @@ void SetPetAtk()
 	}
 }
 
-//==========================================================================================
-//									Detours
-//==========================================================================================
+/* ========================================================================================= *
+ *                                           Detours                                         *
+ * ========================================================================================= */
 
 /**
  *	Detour callback for SurvivorBehavior::SelectMoreDangerousThreat(INextBot const*,CBaseCombatCharacter const*,CBaseCombatCharacter*,CBaseCombatCharacter*)
@@ -337,14 +339,14 @@ MRESReturn SelectThreat_Post(DHookReturn hReturn, DHookParam hParams)
 	if( nextThreat <= 0 || nextThreat > MaxClients ) // Not a player
 		return MRES_Ignored;
 		
-	if( g_iOwner[nextThreat] != 0 ) // Bot is trying to choose a charger pet as more dangerous threat, prevent it
+	if( g_iOwner[nextThreat] != 0 ) // Bot is trying to choose a pet as more dangerous threat, prevent it
 	{
 		if( currentThreat > 0 && currentThreat <= MaxClients && g_iOwner[currentThreat] != 0 ) // Also current threat is a pet
 		{
 			DHookSetReturn(hReturn, FindFirstCommonAvailable()); // Set next threat as any common infected, then survivor will look for more dangerous threats(but never a pet!)
 			return MRES_Supercede;
 		}
-		DHookSetReturn(hReturn, currentThreat); // Don't allow survivor to pick the charger pet, keep this infected as more dangerous
+		DHookSetReturn(hReturn, currentThreat); // Don't allow survivor to pick the pet, keep this infected as more dangerous
 		return MRES_Supercede;
 	}
 	return MRES_Ignored;
@@ -353,9 +355,9 @@ MRESReturn SelectThreat_Post(DHookReturn hReturn, DHookParam hParams)
 /**
  *	Detour callback for SurvivorAttack::SelectTarget(SurvivorBot *)
  *	This is the last function called in the survivor decisions to attack an infected, if there are no more zombies in bot sight, he will attempt to attack
- *	survivor pet even if this plugin doesn't allow it to pick as the most dangerous, because survivor has no more zombies to pick
- *	this completely prevents survivor to attack or aim charger like if it doesn't exist, but survivor will have charger as the target it should attack
- *	so survivor will move like if its fighting charger but will not attack or aim at him
+ *	survivor pet even if the last detour didn't allowed it to pick as the most dangerous, because survivor has no more zombies to pick
+ *	this completely prevents survivor to attack or aim the pet like if it doesn't exist, but survivor will have the pet as the target it should attack
+ *	so survivor will move like if its fighting the pet but will not attack or aim at him
  *	The previous callback allows survivor to choose another infected easily and don't get stuck doing nothing if has the charger as attack target
  */
 MRESReturn SelectTarget_Post(DHookReturn hReturn, DHookParam hParams)
@@ -586,7 +588,7 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 			return Plugin_Handled;
 		else
 		{
-			damage *= 5.0;
+			damage *= g_hPetDmg.FloatValue;
 			return Plugin_Changed;
 		}
 	}
