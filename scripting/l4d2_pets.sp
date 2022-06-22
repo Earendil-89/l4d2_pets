@@ -855,23 +855,10 @@ void UnhookPlayers()
 			SDKUnhook(i, SDKHook_OnTakeDamage, ScaleFF);
 	}
 }
-// Finds Jockey leap ability and removes entity, this will prevent jockey from grabbing survivors
-stock void RemoveJockeyLeap(int client)
-{
-	int i = -1;
-	while( (i = FindEntityByClassname(i, "ability_leap")) != -1 )
-	{
-		if( GetEntPropEnt(i, Prop_Send, "m_owner") == client )
-		{
-			RemoveEntity(i);
-			return;
-		}
-	}
-}
 
 // If infected have they ability used they will go directly to their target/owner instead of
 // searching a proper spot to use their unusable ability
-stock void ResetInfectedAbility(int client, float time) //this is the function
+void ResetInfectedAbility(int client, float time) //this is the function
 {
 	if( client > 0 )
 	{
@@ -894,9 +881,12 @@ stock void ResetInfectedAbility(int client, float time) //this is the function
     - Players now can have also a Jockey as a pet.
     - Pets will attempt to attack other special infected.
     - Pet noise pitch can be changed. 
-	- New ConVars ()
+    - New ConVars (l4d2_pets_pitch, l4d2_pets_attack, l4d2_pets_dmg_scale,
+      l4d2_pets_target_dist)
+	  
 * 1.0.1 (21-Jan-2022)
     - Pets can attempt to destroy obstacles.
-* 1.0   (21-Jan-2021)
+	
+* 1.0   (21-Jan-2022)
     - First release
 ============================================================================================*/
