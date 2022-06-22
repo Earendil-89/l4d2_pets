@@ -4,7 +4,7 @@
  * -------------------------------------------------------------------------------- *
  *  Author      :   Eärendil                                                        *
  *  Descrp      :   Survivors can have a zombie pet following them                  *
- *  Version     :   1.1                                                             *
+ *  Version     :   1.1.1                                                           *
  *  Link        :   https://forums.alliedmods.net/showthread.php?t=336006           *
  * ================================================================================ *
  *                                                                                  *
@@ -33,7 +33,7 @@
 #include <left4dhooks>
 
 #define FCVAR_FLAGS FCVAR_NOTIFY
-#define PLUGIN_VERSION "1.1"
+#define PLUGIN_VERSION "1.1.1"
 #define GAMEDATA "l4d2_pets"
 #define PET_LIMIT 16
 #define	CHECK_TICKS 75
@@ -99,7 +99,7 @@ public void OnPluginStart()
 	g_hPetColor =	CreateConVar("l4d2_pets_opacity",				"235",					"Opacity of the pet.\n0 = Invisible. 255 = Full opaque.", FCVAR_FLAGS, true, 0.0, true, 255.0);
 	g_hJockSize =	CreateConVar("l4d2_pets_size",					"0.55",					"(JOCKEYS ONLY) Scale pets by this amount", FCVAR_FLAGS, true, 0.1, true, 5.0);
 	g_hJockPitch =	CreateConVar("l4d2_pets_pitch",					"150",					"Zombie sound pitch, default pitch: 100.", FCVAR_FLAGS, true, 0.0, true, 255.0);
-	g_hPetAttack =	CreateConVar("l4d2_pets_attack",				"2",					"Allow pets to attack other SI.\n0 = Don't allow.\n1 = Only if the SI attacks its owner.\n2 = The closest SI to its owner.", FCVAR_FLAGS, true, 0.0, true, 1.0);
+	g_hPetAttack =	CreateConVar("l4d2_pets_attack",				"2",					"Allow pets to attack other SI.\n0 = Don't allow.\n1 = Only if the SI attacks its owner.\n2 = The closest SI to its owner.", FCVAR_FLAGS, true, 0.0, true, 2.0);
 	g_hPetDmg =		CreateConVar("l4d2_pets_dmg_scale",				"5.0",					"Multiply pet damage caused to other SI by this value.", FCVAR_FLAGS, true, 0.0, true, 100.0);
 	g_hPetDist =	CreateConVar("l4d2_pets_target_dist",			"400",					"Radius around the survivor to allow pets to attack enemy SI.", FCVAR_FLAGS, true, 0.0, true, 2000.0);
 
@@ -877,13 +877,16 @@ void ResetInfectedAbility(int client, float time) //this is the function
 /*============================================================================================
 									Changelog
 ----------------------------------------------------------------------------------------------
+* 1.1.1 (22-Jun-2022)
+	- Fixed l4d2_pets_attack ConVar limits.
+	
 * 1.1  (22-Jun-2022)
     - Players now can have also a Jockey as a pet.
     - Pets will attempt to attack other special infected.
-    - Improved pet behaviour.
+	- Improved pet behaviour.
     - Pet noise pitch can be changed. 
-    - New ConVars (l4d2_pets_pitch, l4d2_pets_attack, l4d2_pets_dmg_scale,
-      l4d2_pets_target_dist)
+	- New ConVars (l4d2_pets_pitch, l4d2_pets_attack, l4d2_pets_dmg_scale,
+	  l4d2_pets_target_dist)
 	  
 * 1.0.1 (21-Jan-2022)
     - Pets can attempt to destroy obstacles.
