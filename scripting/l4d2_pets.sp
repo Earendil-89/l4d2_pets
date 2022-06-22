@@ -880,6 +880,7 @@ void ResetInfectedAbility(int client, float time) //this is the function
 * 1.1  (22-Jun-2022)
     - Players now can have also a Jockey as a pet.
     - Pets will attempt to attack other special infected.
+    - Improved pet behaviour.
     - Pet noise pitch can be changed. 
     - New ConVars (l4d2_pets_pitch, l4d2_pets_attack, l4d2_pets_dmg_scale,
       l4d2_pets_target_dist)
