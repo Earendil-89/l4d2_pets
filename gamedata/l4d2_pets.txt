@@ -70,6 +70,20 @@
 					}
 				}
 			}
+			"CLeap::OnTouch"
+			{
+				"signature"		"CLeap::OnTouch"
+				"callconv"		"thiscall"
+				"return"		"void"
+				"this"			"entity"
+				"arguments"
+				{
+					"a1"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
 		}
 	}
 	"left4dead2"
@@ -96,7 +110,7 @@
 				"library"	"server"
 				"linux"		"@_ZNK20L4D1SurvivorBehavior25SelectMoreDangerousThreatEPK8INextBotPK20CBaseCombatCharacterPS3_S6_"
 				"windows"	"\x55\x8B\x2A\x51\x53\x89\x2A\x2A\x8B\x2A\x2A\x8B\x2A\x8B\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x2A\x6C"
-				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 6C */
+				/* 55 8B ? 51 53 89 ? ? 8B ? ? 8B ? 8B ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? 7C */
 				/* Search: No strings, use Vtable to find it */
 			}
 			/*
@@ -109,6 +123,16 @@
 				"windows"	"\x55\x8B\x2A\x83\x2A\x2A\x53\x56\x8B\x2A\x2A\x8B\x2A\x8B\x90\x2A\x2A\x2A\x2A\x8B\x2A\x57"
 				/* 55 8B ? 83 ? ? 53 56 8B ? ? 8B ? 8B 90 ? ? ? ? 8B ? 57 */
 				/* Search: "Looking at melee shove target" to find SurvivorAttack::Update find target function from the calls */
+			}
+			/*
+			 *	CLeap::OnTouch(CBaseEntity *)
+			 */
+			"CLeap::OnTouch"
+			{
+				"library"	"server"
+				"linux"		"@_ZN5CLeap7OnTouchEP11CBaseEntity"
+				"windows"	"\x55\x8B\x2A\x51\x8B\x2A\x2A\x2A\x2A\x2A\x89"
+				/* 55 8B ? 51 8B ? ? ? ? ? 89 */
 			}
 		}
 	}
