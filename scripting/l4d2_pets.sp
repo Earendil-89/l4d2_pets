@@ -4,7 +4,7 @@
  * -------------------------------------------------------------------------------- *
  *  Author      :   Eärendil                                                        *
  *  Descrp      :   Survivors can have a zombie pet following them                  *
- *  Version     :   1.1.1                                                           *
+ *  Version     :   1.1.2                                                           *
  *  Link        :   https://forums.alliedmods.net/showthread.php?t=336006           *
  * ================================================================================ *
  *                                                                                  *
@@ -33,7 +33,7 @@
 #include <left4dhooks>
 
 #define FCVAR_FLAGS FCVAR_NOTIFY
-#define PLUGIN_VERSION "1.1.1"
+#define PLUGIN_VERSION "1.1.2"
 #define GAMEDATA "l4d2_pets"
 #define PET_LIMIT 16
 #define	CHECK_TICKS 75
@@ -126,14 +126,32 @@ public void OnPluginStart()
 	Handle hGameData = LoadGameConfigFile(GAMEDATA);
 	if( hGameData == null ) SetFailState("Failed to load \"%s.txt\" gamedata.", GAMEDATA);
 
-	g_hDetThreat = DHookCreateFromConf(hGameData, "SurvivorBehavior::SelectMoreDangerousThreat");
-	if( !g_hDetThreat ) SetFailState("Failed to find \"SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
+	/**
+	 *  New method to detour functions, function addresses have changed
+	 *  This was made by Silvers
+	 */
+	Address offset = GameConfGetAddress(hGameData, "SurvivorBehavior::SelectMoreDangerousThreat");
+	g_hDetThreat = DHookCreateDetour(offset, CallConv_THISCALL, ReturnType_CBaseEntity, ThisPointer_Ignore);
+	DHookAddParam(g_hDetThreat, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreat, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreat, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreat, HookParamType_CBaseEntity);
+
+	offset = GameConfGetAddress(hGameData, "L4D1SurvivorBehavior::SelectMoreDangerousThreat");
+	g_hDetThreatL4D1 = DHookCreateDetour(offset, CallConv_THISCALL, ReturnType_CBaseEntity, ThisPointer_Ignore);
+	DHookAddParam(g_hDetThreatL4D1, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreatL4D1, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreatL4D1, HookParamType_CBaseEntity);
+	DHookAddParam(g_hDetThreatL4D1, HookParamType_CBaseEntity);
+
+	// g_hDetThreat = DHookCreateFromConf(hGameData, "SurvivorBehavior::SelectMoreDangerousThreat");
+	// if( !g_hDetThreat ) SetFailState("Failed to find \"SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
+	
+	// g_hDetThreatL4D1 = DHookCreateFromConf(hGameData, "L4D1SurvivorBehavior::SelectMoreDangerousThreat");
+	// if( !g_hDetThreatL4D1 ) SetFailState("Failed to find \"L4D1SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
 	
 	g_hDetTarget = DHookCreateFromConf(hGameData, "SurvivorAttack::SelectTarget");
 	if( !g_hDetTarget ) SetFailState("Failed to find \"SurvivorAttack::SelectTarget\" signature.");
-	
-	g_hDetThreatL4D1 = DHookCreateFromConf(hGameData, "L4D1SurvivorBehavior::SelectMoreDangerousThreat");
-	if( !g_hDetThreat ) SetFailState("Failed to find \"L4D1SurvivorBehavior::SelectMoreDangerousThreat\" signature.");
 	
 	g_hDetLeap = DHookCreateFromConf(hGameData, "CLeap::OnTouch");
 	if( !g_hDetLeap ) SetFailState("Failed to find \"CLeap::OnTouch\" signature.");
@@ -188,9 +206,9 @@ public void OnPluginEnd()
 	}
 }
 
-//==========================================================================================
-//										ConVars
-//==========================================================================================
+/* ========================================================================================= *
+ *                                          ConVars                                          *
+ * ========================================================================================= */
  
 void CvarChange_Enable(Handle conVar, const char[] oldValue, const char[] newValue)
 {
@@ -269,8 +287,8 @@ void SwitchPlugin()
 	if( g_bPluginOn == true && (g_hAllow.BoolValue == false || g_bAllowedGamemode == false) )
 	{
 		g_bPluginOn = false;
-		UnhookEvent("round_start",			Event_Round_Start);
-		UnhookEvent("round_end",			Event_Round_End);
+		UnhookEvent("round_start",			Event_Round_Start, EventHookMode_PostNoCopy);
+		UnhookEvent("round_end",			Event_Round_End, EventHookMode_PostNoCopy);
 		UnhookEvent("player_death",			Event_Player_Death);
 		UnhookEvent("player_bot_replace",	Event_Player_Replaced);
 		UnhookEvent("bot_player_replace",	Event_Bot_Replaced);
@@ -399,9 +417,9 @@ MRESReturn LeapJockey(int pThis, DHookParam hParams)
 	return MRES_Ignored;
 }
 
-//==========================================================================================
-//											Events & Hooks
-//==========================================================================================
+/* ========================================================================================= *
+ *                                       Events & Hooks                                      *
+ * ========================================================================================= */
 
 void Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 {
@@ -530,7 +548,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 
 Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags)
 {
-	if( !entity || entity > MaxClients )
+	if( entity < 0 || entity > MaxClients )
 		return Plugin_Continue;
 		
 	if( g_iOwner[entity] != 0 )
@@ -541,7 +559,6 @@ Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH
 
 public Action L4D2_OnChooseVictim(int specialInfected, int &curTarget)
 {
-
 	if( g_iTarget[specialInfected] != 0 ) // Pet has an attack target different than its owner
 	{
 		if( IsClientInGame(g_iTarget[specialInfected]) && IsPlayerAlive(g_iTarget[specialInfected]) )	// Check if target is still alive
@@ -595,9 +612,9 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 	return Plugin_Continue;
 }
 
-//
-//				Timers
-//
+/* ========================================================================================= *
+ *                                            Timers                                         *
+ * ========================================================================================= */
 Action ChangeVictim_Timer(Handle timer, int pet)
 {
 	g_hPetVictimTimer[pet] = null;
@@ -627,9 +644,9 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 	return Plugin_Continue;
 }
 
-//==========================================================================================
-//										Say command
-//==========================================================================================
+/* ========================================================================================= *
+ *                                        Say Command                                        *
+ * ========================================================================================= */
 
 Action CmdSayPet(int client, int args)
 {
@@ -718,9 +735,9 @@ Action CmdSayPet(int client, int args)
 	return Plugin_Handled;
 }
 
-//==========================================================================================
-//										Functions
-//==========================================================================================
+/* ========================================================================================= *
+ *                                         Functions                                         *
+ * ========================================================================================= */
 
 bool SpawnPet(int client, int zClass)
 {
@@ -762,7 +779,7 @@ bool SpawnPet(int client, int zClass)
 int GetSurvivorPets(int client)
 {
 	int result = 0;
-	for( int i = 0; i <= MaxClients; i++ )
+	for( int i = 1; i <= MaxClients; i++ )
 	{
 		if( g_iOwner[i] == client )
 			result++;
@@ -773,7 +790,7 @@ int GetSurvivorPets(int client)
 int GetTotalPets()
 {
 	int result = 0;
-	for( int i = 0; i <= MaxClients; i++ )
+	for( int i = 1; i <= MaxClients; i++ )
 	{
 		if( g_iOwner[i] != 0 )
 		result++;
@@ -858,7 +875,7 @@ void UnhookPlayers()
 
 // If infected have they ability used they will go directly to their target/owner instead of
 // searching a proper spot to use their unusable ability
-void ResetInfectedAbility(int client, float time) //this is the function
+void ResetInfectedAbility(int client, float time)
 {
 	if( client > 0 )
 	{
@@ -877,6 +894,10 @@ void ResetInfectedAbility(int client, float time) //this is the function
 /*============================================================================================
 									Changelog
 ----------------------------------------------------------------------------------------------
+* 1.1.2 (08-Dec-2022)
+	- Changed detouring method.
+	- Fix minor code erros.
+
 * 1.1.1 (22-Jun-2022)
 	- Fixed l4d2_pets_attack ConVar limits.
 	
@@ -887,7 +908,7 @@ void ResetInfectedAbility(int client, float time) //this is the function
     - Pet noise pitch can be changed. 
 	- New ConVars (l4d2_pets_pitch, l4d2_pets_attack, l4d2_pets_dmg_scale,
 	  l4d2_pets_target_dist)
-	  
+
 * 1.0.1 (21-Jan-2022)
     - Pets can attempt to destroy obstacles.
 	
