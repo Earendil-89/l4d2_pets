@@ -651,7 +651,7 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
             float vPetPos[3], vOwnerPos[3];
             GetClientAbsOrigin(client, vPetPos);
             GetClientAbsOrigin(g_iOwner[client], vOwnerPos);
-            if( GetVectorDistance(vPetPos, vOwnerPos, true) > 16834.0 ) // More than 128 game units between pet and owner
+            if( GetVectorDistance(vPetPos, vOwnerPos, true) > 16834.0 || L4D_GetPinnedInfected(g_iOwner[client]) != 0 ) // More than 128 game units between pet and owner
                 return Plugin_Changed;
         }
         buttons &= ~IN_ATTACK2;
@@ -1169,7 +1169,7 @@ bool SpawnPet(int client, int zClass)
             ResetInfectedAbility(i, 9999.9);
             bReturn = true;
             delete g_hPetVictimTimer[i];
-            g_hPetVictimTimer[i] = CreateTimer(3.0, ChangeVictim_Timer, i);
+            g_hPetVictimTimer[i] = CreateTimer(g_hPetUpdateRate.FloatValue, ChangeVictim_Timer, i);
 
             break;
         }
