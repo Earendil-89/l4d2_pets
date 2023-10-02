@@ -1068,9 +1068,9 @@ Action CmdSayPet(int client, int args)
         {
             bResult = SpawnPet(client, view_as<int>(L4D2ZombieClass_Charger));
         }
-        else if(bCanCharger)
+        else if(bCanJockey)
         {
-            bResult = SpawnPet(client, view_as<int>(L4D2ZombieClass_Charger));
+            bResult = SpawnPet(client, view_as<int>(L4D2ZombieClass_Jockey));
         }
         else
         {
