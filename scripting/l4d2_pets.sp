@@ -114,7 +114,7 @@ public void OnPluginStart()
     g_hJockPitch =	        CreateConVar("l4d2_pets_pitch",                "150",					"Zombie sound pitch, default pitch: 100.", FCVAR_FLAGS, true, 0.0, true, 255.0);
     g_hPetAttack =	        CreateConVar("l4d2_pets_attack",               "2",					"Allow pets to attack other SI.\n0 = Don't allow.\n1 = Only if the SI attacks its owner.\n2 = The closest SI to its owner.", FCVAR_FLAGS, true, 0.0, true, 2.0);
     g_hPetDmg =		        CreateConVar("l4d2_pets_dmg_scale",            "5.0",					"Multiply pet damage caused to other SI by this value.", FCVAR_FLAGS, true, 0.0, true, 100.0);
-    g_hPetDist =	        CreateConVar("l4d2_pets_target_dist",          "400",					"Radius around the survivor to allow pets to attack enemy SI.", FCVAR_FLAGS, true, 0.0, true, 2000.0);
+    g_hPetDist =	        CreateConVar("l4d2_pets_target_dist",          "400",					"Radius around the survivor to allow pets to attack enemy SI.", FCVAR_FLAGS, true, 0.0, true, 65535.0);
     g_hPetUpdateRate =	    CreateConVar("l4d2_pets_target_update_rate",   "3.0",					"Time in seconds Pet updates their target.", FCVAR_FLAGS, true, 0.3, true, 10.0);
     g_hPetTargetMethod =	CreateConVar("l4d2_pets_target_method",        "1",					"0 = Pet targets closest to owner. 1 = Pet focuses on pinned, then on incapped, then on closest to owner.", FCVAR_FLAGS, true, 0.0, true, 1.0);
     g_hPetCarrySlowSurvivors =	CreateConVar("l4d2_pets_carry_slow_survivors",        "0",					"0 = Pets don't carry slow survivors. 1 = Pets carry slow survivors to safe room after owner arrives. 2 = Like 1 but pets also carry incapped survivors.", FCVAR_FLAGS, true, 0.0, true, 2.0);
@@ -685,7 +685,6 @@ public Action L4D2_OnChooseVictim(int specialInfected, int &curTarget)
             g_iTarget[specialInfected] = 0;	// Remove target
         }
 
-    // PrintToChatAll("Target: %N", curTarget);
         return Plugin_Changed;
     }
     if( g_iOwner[specialInfected] != 0 )
@@ -881,6 +880,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                     {
                         GetClientAbsOrigin(i, vTarget);
                         float tempDist = GetVectorDistance(vOwner, vTarget, true);
+
                         if( tempDist < fDist )
                         {
                             fDist = tempDist;
@@ -971,6 +971,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                         }
                     }
                 }
+
                 if(nextTarget == 0)
                 {
                     fDist = g_fPetDist;
@@ -1307,7 +1308,7 @@ bool IsNotCarryable(int client)
     int door = L4D_GetCheckpointLast();
 
     if(door == -1)
-        return true;
+        return false;
 
     float fOrigin[3], fDoorOrigin[3];
     GetEntPropVector(client, Prop_Data, "m_vecAbsOrigin", fOrigin);
