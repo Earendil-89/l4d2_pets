@@ -792,6 +792,15 @@ public void RPG_Perks_OnGetSpecialInfectedClass(int priority, int client, L4D2Zo
     zclass = view_as<L4D2ZombieClassType>(GetEntProp(client, Prop_Send, "m_zombieClass"));
 }
 
+public void RPG_Perks_OnZombiePlayerSpawned(int client)
+{
+    int owner = GetEntPropEnt(client, Prop_Send, "m_hOwnerEntity");
+
+    if(g_iOwner[client] == 0)
+        return;
+
+    ResetInfectedAbility(client, 9999.9);
+}
 bool IsPlayer(int entity)
 {
     if(entity >= 1 && entity <= MaxClients)
