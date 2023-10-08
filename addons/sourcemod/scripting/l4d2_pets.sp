@@ -70,6 +70,7 @@ int g_iGlobPetLim;
 int g_iPlyPetLim;
 int g_iCarrier[MAXPLAYERS+1] = { -1, ... };
 int g_iOwner[MAXPLAYERS + 1];		// Who owns this pet?
+int g_iLastCommand[MAXPLAYERS + 1] = { -1, ... };		// Last player this pet was sent to attack, 0 = move to a position
 int g_iTarget[MAXPLAYERS + 1];	// Pet can target another special infected to protect its owner
 int g_iNextCheck[MAXPLAYERS + 1];
 int g_iPetTargetMethod;
@@ -786,6 +787,8 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
     if(g_iPetCarrySlowSurvivors != 0 && GetPlayerCarry(attacker) == -1 && L4D_GetClientTeam(victim) == L4DTeam_Survivor && IsNotCarryable(g_iOwner[attacker]) && !IsNotCarryable(victim))
     {
         g_iCarrier[victim] = attacker;
+        TriggerTimer(g_hPetVictimTimer[attacker]);
+        //SetPetBlindState(attacker, true);
     }
 
     return Plugin_Stop;
@@ -876,14 +879,48 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 * ========================================================================================= */
 Action ChangeVictim_Timer(Handle timer, int pet)
 {
+        
+    int owner = g_iOwner[pet];
+
+    // Rare bug...
+    bool bCanPet = true;
+    Action rtnPet;
+
+    Call_StartForward(g_fwOnCanHavePets);
+    
+    Call_PushCell(owner);
+    Call_PushCell(L4D2_GetPlayerZombieClass(pet));
+    Call_PushCellRef(bCanPet);
+
+    Call_Finish(rtnPet);
+
+    if(rtnPet > Plugin_Continue && !bCanPet)
+    {
+        KillPet(pet);
+        return Plugin_Stop;
+    }
+
+    // Another rare bug...
+    if(L4D_GetPinnedSurvivor(pet) != 0)
+    {
+        L4D_StaggerPlayer(pet, pet, NULL_VECTOR);
+
+        // Special trick to end stagger.
+        char TempFormat[128];
+        FormatEx(TempFormat, sizeof(TempFormat), "GetPlayerFromUserID(%i).SetModel(GetPlayerFromUserID(%i).GetModelName())", GetClientUserId(pet), GetClientUserId(pet));
+        L4D2_ExecVScriptCode(TempFormat);
+    }
+    else
+    {
+        ResetInfectedAbility(pet, 9999.9);
+    }
+
     g_hPetVictimTimer[pet] = null;
     float vTarget[3];
     float vOwner[3];
     float vPet[3];
     float fDist = g_fPetDist;
     int nextTarget = 0;
-    
-    int owner = g_iOwner[pet];
 
     GetClientAbsOrigin(owner, vOwner);
 
@@ -914,6 +951,20 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         else
         {
             nextTarget = owner;
+
+            if(g_iLastCommand[pet] != 0)
+            {
+                g_iLastCommand[pet] = 0;
+
+                int door = L4D_GetCheckpointLast();
+
+                if(door == -1)
+                    return Plugin_Continue;
+
+                float fDoorOrigin[3];
+                GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
+                L4D2_CommandABot(pet, nextTarget, BOT_CMD_MOVE, fDoorOrigin);
+            }
         }
     }
     else
@@ -1045,6 +1096,12 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     }
 
     g_iTarget[pet] = nextTarget;
+
+    if(IsPlayer(g_iTarget[pet]) && g_iTarget[pet] != owner && g_iLastCommand[pet] != g_iTarget[pet])
+    {
+        g_iLastCommand[pet] = g_iTarget[pet];
+        L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_ATTACK);
+    }
     g_hPetVictimTimer[pet] = CreateTimer(g_fPetUpdateRate, ChangeVictim_Timer, pet);
     
     return Plugin_Continue;
@@ -1215,6 +1272,7 @@ bool SpawnPet(int client, int zClass)
         if( GetEntProp(i, Prop_Send, "m_zombieClass") == zClass )
         {
             g_iOwner[i] = client;
+            g_iLastCommand[i] = -1;
             SetEntityRenderMode(i, RENDER_TRANSTEXTURE);	// Set rendermode
             SetEntityRenderColor(i, 255, 255, 255, g_hPetColor.IntValue);	// Set translucency (color doesn't work)
             SetEntProp(i, Prop_Send, "m_iGlowType", 3);	// Make pet glow
@@ -1414,7 +1472,7 @@ stock void EndCarryBetweenPlayers(int carrier, int carried)
 
             int owner = g_iOwner[carrier];
 
-            ForcePlayerSuicide(carrier);
+            KillPet(carrier);
 
             if(owner != 0)
             {
