@@ -32,7 +32,7 @@
 #include <dhooks>
 #include <left4dhooks>
 
-#tryinclude <actions>
+//#tryinclude <actions>
 
 #define CARRY_OFFSET 55.0
 
@@ -60,6 +60,7 @@ ConVar g_hPetTargetMethod;
 ConVar g_hPetCarrySlowSurvivors;
 
 GlobalForward g_fwOnCanHavePets;
+GlobalForward g_fwOnCanPetReviveIncap;
 
 bool g_bAllowedGamemode;
 bool g_bPluginOn;
@@ -125,6 +126,7 @@ public void OnPluginStart()
     g_hCurrGamemode = FindConVar("mp_gamemode");
 
     g_fwOnCanHavePets = CreateGlobalForward("L4D2_Pets_OnCanHavePets", ET_Event, Param_Cell, Param_Cell, Param_CellByRef);
+    g_fwOnCanPetReviveIncap = CreateGlobalForward("L4D2_Pets_OnCanPetReviveIncap", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_FloatByRef);
     
     g_hAllow.AddChangeHook(CvarChange_Enable);
     g_hGameModes.AddChangeHook(CvarChange_Enable);
@@ -790,8 +792,51 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
         TriggerTimer(g_hPetVictimTimer[attacker]);
         //SetPetBlindState(attacker, true);
     }
-
+  
     return Plugin_Stop;
+}
+
+public Action Timer_CheckPetReviveIncap(Handle hTimer, int userid)
+{
+    int attacker = GetClientOfUserId(userid);
+
+    if(attacker == 0)
+        return Plugin_Stop;
+
+    else if(g_iOwner[attacker] == 0)
+    {
+        SetEntityMoveType(attacker, MOVETYPE_WALK);
+        return Plugin_Stop;
+    }
+
+    int victim = 0;
+
+    for(int i = 1; i <= MaxClients; i++ )
+    {
+        if( IsClientInGame(i) && GetClientTeam(i) == 2 && IsPlayerAlive(i) && L4D_IsPlayerIncapacitated(i) && GetEntPropEnt(i, Prop_Send, "m_reviveOwner") == attacker)
+        {
+            victim = i;
+        }
+    }
+
+    if(victim == 0)
+    {
+        SetEntityMoveType(attacker, MOVETYPE_WALK);
+        return Plugin_Stop;
+    }
+   
+    if(GetEntPropFloat(victim, Prop_Send, "m_flProgressBarStartTime") + GetEntPropFloat(victim, Prop_Send, "m_flProgressBarDuration") < GetGameTime())
+    {
+        SetEntityMoveType(attacker, MOVETYPE_WALK);
+
+        SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", g_iOwner[attacker]);
+        L4D_ReviveSurvivor(victim);
+        SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", -1);
+
+        return Plugin_Stop;
+    }
+
+    return Plugin_Continue;
 }
 
 public void RPG_Perks_OnGetSpecialInfectedClass(int priority, int client, L4D2ZombieClassType &zclass)
@@ -923,6 +968,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     int nextTarget = 0;
 
     GetClientAbsOrigin(owner, vOwner);
+    GetClientAbsOrigin(pet, vPet);
 
     if(IsNotCarryable(owner) && !IsFakeClient(owner) && L4D_GetPinnedInfected(owner) == 0 && g_iPetCarrySlowSurvivors != 0)
     {
@@ -930,7 +976,6 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
         if(GetPlayerCarry(pet) == -1)
         {
-            GetClientAbsOrigin(pet, vPet);
             for( int i = 1; i <= MaxClients; i++ )
             {
                 if(IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 2 && !IsNotCarryable(i) && L4D_GetPinnedInfected(i) == 0 && (g_iPetCarrySlowSurvivors == 2 || !L4D_IsPlayerIncapacitated(i)))
@@ -1053,22 +1098,64 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                     // This is the closest incapped survivor. Find closest SI to it.
                     if(closestIncapped != 0)
                     {
-                        fDist = g_fPetDist;
+                        float fDuration = -1.0;
 
-                        float vIncapped[3];
-                        GetClientAbsOrigin(closestIncapped, vIncapped);
-                        for( int i = 1; i <= MaxClients; i++ )
+                        Call_StartForward(g_fwOnCanPetReviveIncap);
+
+                        Call_PushCell(closestIncapped);
+                        Call_PushCell(pet);
+                        Call_PushCell(g_iOwner[pet]);
+
+                        Call_PushFloatRef(fDuration);
+
+                        Call_Finish();
+
+                        if(fDuration >= 0.0 && GetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner") == -1)
                         {
-                            if( i != pet && IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 3 && g_iOwner[i] == 0)
-                            {
-                                GetClientAbsOrigin(i, vTarget);
+                            nextTarget = closestIncapped;
 
-                                float tempDist = GetVectorDistance(vIncapped, vTarget, true);
-                                if( tempDist < fDist )
+                            float vIncapped[3];
+                            GetClientAbsOrigin(closestIncapped, vIncapped);
+
+                            if(GetVectorDistance(vIncapped, vPet, false) < 128.0)
+                            {
+                                if(fDuration == 0.0)
                                 {
-                                    fDist = tempDist;
-                                    nextTarget = i;
-                                }			
+                                    SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", g_iOwner[pet]);
+                                    L4D_ReviveSurvivor(closestIncapped);
+                                    SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", -1);
+                                }
+                                else
+                                {
+                                    SetEntityMoveType(pet, MOVETYPE_NONE);
+
+                                    SetEntPropFloat(closestIncapped, Prop_Send, "m_flProgressBarStartTime", GetGameTime());
+                                    SetEntPropFloat(closestIncapped, Prop_Send, "m_flProgressBarDuration", fDuration);
+                                    SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", pet);
+
+                                    CreateTimer(0.1, Timer_CheckPetReviveIncap, GetClientUserId(pet), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            fDist = g_fPetDist;
+
+                            float vIncapped[3];
+                            GetClientAbsOrigin(closestIncapped, vIncapped);
+                            for( int i = 1; i <= MaxClients; i++ )
+                            {
+                                if( i != pet && IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 3 && g_iOwner[i] == 0)
+                                {
+                                    GetClientAbsOrigin(i, vTarget);
+
+                                    float tempDist = GetVectorDistance(vIncapped, vTarget, true);
+                                    if( tempDist < fDist )
+                                    {
+                                        fDist = tempDist;
+                                        nextTarget = i;
+                                    }			
+                                }
                             }
                         }
                     }
@@ -1095,12 +1182,20 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         }
     }
 
+    if(nextTarget == owner)
+        nextTarget = 0;
+
     g_iTarget[pet] = nextTarget;
 
     if(IsPlayer(g_iTarget[pet]) && g_iTarget[pet] != owner && g_iLastCommand[pet] != g_iTarget[pet])
     {
         g_iLastCommand[pet] = g_iTarget[pet];
         L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_ATTACK);
+    }
+    else if(g_iLastCommand[pet] != -1)
+    {
+        g_iLastCommand[pet] = -1;
+        L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_RESET);
     }
     g_hPetVictimTimer[pet] = CreateTimer(g_fPetUpdateRate, ChangeVictim_Timer, pet);
     
