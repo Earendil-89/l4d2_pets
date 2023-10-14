@@ -70,6 +70,7 @@ int g_iFlags;
 int g_iGlobPetLim;
 int g_iPlyPetLim;
 int g_iCarrier[MAXPLAYERS+1] = { -1, ... };
+int g_iLastRevive[MAXPLAYERS+1];
 int g_iOwner[MAXPLAYERS + 1];		// Who owns this pet?
 int g_iLastCommand[MAXPLAYERS + 1] = { -1, ... };		// Last player this pet was sent to attack, 0 = move to a position
 int g_iTarget[MAXPLAYERS + 1];	// Pet can target another special infected to protect its owner
@@ -82,6 +83,9 @@ float g_fPetUpdateRate;
 float g_fImaginaryDamage[MAXPLAYERS+1][MAXPLAYERS+1];
 Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget, g_hDetLeap;
 Handle g_hPetVictimTimer[MAXPLAYERS + 1];
+
+// When pet revives with ownership
+int g_iOverrideRevive = 0;
 
 // Plugin Info
 public Plugin myinfo =
@@ -233,7 +237,10 @@ public void OnPluginEnd()
     for( int i = 1; i < MaxClients; i++ )
     {
         if( g_iOwner[i] != 0 )
+        {
+            // Should be enough to also call "player_death" and detach revive timers from the incapped survivors.
             ForcePlayerSuicide(i);
+        }
     }
 }
 
@@ -275,7 +282,7 @@ public void OnGameFrame()
         fOrigin[2] += CARRY_OFFSET - 64.0;
         TeleportEntity(i, fOrigin, NULL_VECTOR, {0.0, 0.0, 0.1});
 
-        if(IsNotCarryable(i))
+        if(!IsNotCarryable(g_iOwner[g_iCarrier[i]]) || IsNotCarryable(i) || IsFakeClient(i) || L4D_GetPinnedInfected(i) != 0 || g_iPetCarrySlowSurvivors == 0)
         {
             EndCarryBetweenPlayers(g_iCarrier[i], i);
         }
@@ -546,6 +553,15 @@ Action Event_Player_Death(Event event, const char[] name, bool dontBroadcast)
     if(carried != -1)
         g_iCarrier[carried] = -1;
 
+    if(g_iOwner[client] != 0 && g_iLastRevive[client] != 0)
+    {
+        int trueVictim = g_iLastRevive[client];
+
+        SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+
+        g_iLastRevive[client] = 0;
+    }
+
     g_iOwner[client] = 0;
     delete g_hPetVictimTimer[client];
 
@@ -582,7 +598,16 @@ Action Event_Player_Replaced(Event event, const char[] name, bool dontBroadcast)
     {
         if( g_iOwner[i] == client )
             g_iOwner[i] = bot;
+
+        if( g_iLastRevive[i] == client)
+        {
+            g_iLastRevive[i] = 0;
+
+            SetEntPropEnt(bot, Prop_Send, "m_reviveOwner", -1);
+        }
     }
+
+    
     return Plugin_Continue;
 }
 
@@ -595,6 +620,13 @@ void Event_Bot_Replaced(Event event, const char[] name, bool dontBroadcast)
     {
         if( g_iOwner[i] == bot )
             g_iOwner[i] = client;
+
+        if( g_iLastRevive[i] == bot)
+        {
+            g_iLastRevive[i] = 0;
+
+            SetEntPropEnt(client, Prop_Send, "m_reviveOwner", -1);
+        }
     }
 }
 
@@ -749,7 +781,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
 
         if(pinner != 0 && L4D2_GetPlayerZombieClass(pinner) == L4D2ZombieClass_Jockey)
         {
-            SDKHooks_TakeDamage(pinner, inflictor, attacker, damage, damagetype|DMG_DIRECT, _, _, _, false);
+            SDKHooks_TakeDamage(pinner, inflictor, attacker, damage, damagetype|DMG_DROWNRECOVER, _, _, _, false);
 
             return Plugin_Stop;
         }
@@ -792,7 +824,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
         TriggerTimer(g_hPetVictimTimer[attacker]);
         //SetPetBlindState(attacker, true);
     }
-  
+
     return Plugin_Stop;
 }
 
@@ -805,7 +837,11 @@ public Action Timer_CheckPetReviveIncap(Handle hTimer, int userid)
 
     else if(g_iOwner[attacker] == 0)
     {
+        int trueVictim = g_iLastRevive[attacker];
+
         SetEntityMoveType(attacker, MOVETYPE_WALK);
+        SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+        g_iLastRevive[attacker] = 0;
         return Plugin_Stop;
     }
 
@@ -821,21 +857,24 @@ public Action Timer_CheckPetReviveIncap(Handle hTimer, int userid)
 
     if(victim == 0)
     {
+        int trueVictim = g_iLastRevive[attacker];
         SetEntityMoveType(attacker, MOVETYPE_WALK);
+        SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+        g_iLastRevive[attacker] = 0;
         return Plugin_Stop;
     }
-   
+
     if(GetEntPropFloat(victim, Prop_Send, "m_flProgressBarStartTime") + GetEntPropFloat(victim, Prop_Send, "m_flProgressBarDuration") < GetGameTime())
     {
         SetEntityMoveType(attacker, MOVETYPE_WALK);
 
-        SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", g_iOwner[attacker]);
-        L4D_ReviveSurvivor(victim);
-        SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", -1);
+        ReviveWithOwnership(victim, g_iOwner[attacker]);
 
+        g_iLastRevive[attacker] = 0;
         return Plugin_Stop;
     }
 
+    SetEntityMoveType(attacker, MOVETYPE_NONE);
     return Plugin_Continue;
 }
 
@@ -924,7 +963,15 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 * ========================================================================================= */
 Action ChangeVictim_Timer(Handle timer, int pet)
 {
-        
+    for(int i = 1; i <= MaxClients; i++ )
+    {
+        // Not incapped but has revive owner
+        if( IsClientInGame(i) && GetClientTeam(i) == 2 && IsPlayerAlive(i) && !L4D_IsPlayerIncapacitated(i) && GetEntPropEnt(i, Prop_Send, "m_reviveOwner") == pet)
+        {
+            SetEntPropEnt(i, Prop_Send, "m_reviveOwner", -1);
+        }
+    }
+
     int owner = g_iOwner[pet];
 
     // Rare bug...
@@ -1010,13 +1057,52 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                 GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
                 L4D2_CommandABot(pet, nextTarget, BOT_CMD_MOVE, fDoorOrigin);
             }
+
+            int target = GetPlayerCarry(pet);
+
+            float fDuration = -1.0;
+
+            Call_StartForward(g_fwOnCanPetReviveIncap);
+
+            Call_PushCell(target);
+            Call_PushCell(pet);
+            Call_PushCell(g_iOwner[pet]);
+
+            Call_PushFloatRef(fDuration);
+
+            Call_Finish();
+
+            if(fDuration >= 0.0 && GetEntPropEnt(target, Prop_Send, "m_reviveOwner") == -1 && g_iLastRevive[pet] == 0)
+            {
+                nextTarget = target;
+
+                float vIncapped[3];
+                GetClientAbsOrigin(target, vIncapped);
+
+                if(GetVectorDistance(vIncapped, vPet, false) < 128.0)
+                {
+                    if(fDuration == 0.0)
+                    {
+                        ReviveWithOwnership(target, g_iOwner[pet]);
+                    }
+                    else
+                    {
+                        SetEntityMoveType(pet, MOVETYPE_NONE);
+
+                        SetEntPropFloat(target, Prop_Send, "m_flProgressBarStartTime", GetGameTime());
+                        SetEntPropFloat(target, Prop_Send, "m_flProgressBarDuration", fDuration);
+                        SetEntPropEnt(target, Prop_Send, "m_reviveOwner", pet);
+
+                        g_iLastRevive[pet] = target;
+
+                        CreateTimer(0.1, Timer_CheckPetReviveIncap, GetClientUserId(pet), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
+                    }
+                }
+            }
         }
     }
     else
     {
-        if(GetPlayerCarry(pet) != -1)
-            EndCarryBetweenPlayers(pet, GetPlayerCarry(pet));
-
         switch(g_iPetTargetMethod)
         {
             case 0:
@@ -1110,7 +1196,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
                         Call_Finish();
 
-                        if(fDuration >= 0.0 && GetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner") == -1)
+                        if(fDuration >= 0.0 && GetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner") == -1 && g_iLastRevive[pet] == 0)
                         {
                             nextTarget = closestIncapped;
 
@@ -1121,9 +1207,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                             {
                                 if(fDuration == 0.0)
                                 {
-                                    SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", g_iOwner[pet]);
-                                    L4D_ReviveSurvivor(closestIncapped);
-                                    SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", -1);
+                                    ReviveWithOwnership(closestIncapped, g_iOwner[pet]);
                                 }
                                 else
                                 {
@@ -1132,6 +1216,8 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                                     SetEntPropFloat(closestIncapped, Prop_Send, "m_flProgressBarStartTime", GetGameTime());
                                     SetEntPropFloat(closestIncapped, Prop_Send, "m_flProgressBarDuration", fDuration);
                                     SetEntPropEnt(closestIncapped, Prop_Send, "m_reviveOwner", pet);
+
+                                    g_iLastRevive[pet] = closestIncapped;
 
                                     CreateTimer(0.1, Timer_CheckPetReviveIncap, GetClientUserId(pet), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
                                 }
@@ -1357,35 +1443,25 @@ bool SpawnPet(int client, int zClass)
     if( !L4D_GetRandomPZSpawnPosition(client, 5, 5, vPos) )	// Try to get a random position to spawn the pet
         GetClientAbsOrigin(client, vPos);
         
-    L4D2_SpawnSpecial(zClass, vPos, NULL_VECTOR);
+    int pet = L4D2_SpawnSpecial(zClass, vPos, NULL_VECTOR);
 
-    for( int i = MaxClients; i > 0; i-- ) // Reverse loop from last connected player to first one
-    {
-        if( !IsClientInGame(i) || !IsPlayerAlive(i) || GetClientTeam(i) != 3  || !IsFakeClient(i) )
-            continue;
-            
-        if( GetEntProp(i, Prop_Send, "m_zombieClass") == zClass )
-        {
-            g_iOwner[i] = client;
-            g_iLastCommand[i] = -1;
-            SetEntityRenderMode(i, RENDER_TRANSTEXTURE);	// Set rendermode
-            SetEntityRenderColor(i, 255, 255, 255, g_hPetColor.IntValue);	// Set translucency (color doesn't work)
-            SetEntProp(i, Prop_Send, "m_iGlowType", 3);	// Make pet glow
-            SetEntProp(i, Prop_Send, "m_nGlowRange", 5000);
-            SetEntProp(i, Prop_Send, "m_glowColorOverride", 39168);	// Glow color green
-            if( zClass == 5 ) SetEntPropFloat(i, Prop_Send, "m_flModelScale", g_hJockSize.FloatValue); // Only for jockeys
-            SetEntProp(i, Prop_Send, "m_CollisionGroup", 1); // Prevent collisions with players
-            SDKHook(i, SDKHook_TraceAttack, OnShootPet);	// Allows bullets to pass through the pet
-            SDKHook(i, SDKHook_OnTakeDamage, OnHurtPet);	// Prevents pet from taking any type of damage from survivors
-            SetEntPropEnt(i, Prop_Send, "m_hOwnerEntity", client);
-            ResetInfectedAbility(i, 9999.9);
-            bReturn = true;
-            delete g_hPetVictimTimer[i];
-            g_hPetVictimTimer[i] = CreateTimer(g_hPetUpdateRate.FloatValue, ChangeVictim_Timer, i);
+    g_iOwner[pet] = client;
+    g_iLastCommand[pet] = -1;
+    SetEntityRenderMode(pet, RENDER_TRANSTEXTURE);	// Set rendermode
+    SetEntityRenderColor(pet, 255, 255, 255, g_hPetColor.IntValue);	// Set translucency (color doesn't work)
+    SetEntProp(pet, Prop_Send, "m_iGlowType", 3);	// Make pet glow
+    SetEntProp(pet, Prop_Send, "m_nGlowRange", 5000);
+    SetEntProp(pet, Prop_Send, "m_glowColorOverride", 39168);	// Glow color green
+    if( zClass == 5 ) SetEntPropFloat(pet, Prop_Send, "m_flModelScale", g_hJockSize.FloatValue); // Only for jockeys
+    SetEntProp(pet, Prop_Send, "m_CollisionGroup", 1); // Prevent collisions with players
+    SDKHook(pet, SDKHook_TraceAttack, OnShootPet);	// Allows bullets to pass through the pet
+    SDKHook(pet, SDKHook_OnTakeDamage, OnHurtPet);	// Prevents pet from taking any type of damage from survivors
+    SetEntPropEnt(pet, Prop_Send, "m_hOwnerEntity", client);
+    ResetInfectedAbility(pet, 9999.9);
+    bReturn = true;
+    delete g_hPetVictimTimer[pet];
+    g_hPetVictimTimer[pet] = CreateTimer(g_hPetUpdateRate.FloatValue, ChangeVictim_Timer, pet);
 
-            break;
-        }
-    }
     return bReturn;
 }
 
@@ -1611,6 +1687,45 @@ stock bool UC_IsNullVector(const float Vector[3])
 stock int GetEntityHealth(int entity)
 {
     return GetEntProp(entity, Prop_Data, "m_iHealth");
+}
+
+stock void ReviveWithOwnership(int victim, int reviver)
+{
+    if(L4D_GetClientTeam(reviver) == L4DTeam_Infected)
+    {
+        int owner = GetEntPropEnt(reviver, Prop_Send, "m_hOwnerEntity");
+
+        if(owner == -1)
+            return;
+
+        reviver = owner;
+    }
+    
+    g_iOverrideRevive = reviver;
+
+    SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", -1);
+
+    HookEvent("revive_success", Event_ReviveSuccessPre, EventHookMode_Pre);
+    L4D_ReviveSurvivor(victim);
+    UnhookEvent("revive_success", Event_ReviveSuccessPre, EventHookMode_Pre);
+
+    g_iOverrideRevive = 0;
+
+    SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", -1);
+}
+
+public Action Event_ReviveSuccessPre(Event event, const char[] name, bool dontBroadcast)
+{
+    if(g_iOverrideRevive != 0)
+    {
+        SetEventInt(event, "userid", GetClientUserId(g_iOverrideRevive));
+
+        g_iOverrideRevive = 0;
+
+        return Plugin_Changed;
+    }
+
+    return Plugin_Continue;
 }
 
 /*============================================================================================
