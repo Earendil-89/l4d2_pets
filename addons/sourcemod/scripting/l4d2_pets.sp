@@ -347,8 +347,8 @@ void SwitchPlugin()
         HookEvent("round_end",			Event_Round_End, EventHookMode_PostNoCopy);
         HookEvent("player_spawn",		Event_Player_Spawn);
         HookEvent("player_death",		Event_Player_Death);
-        HookEvent("player_bot_replace", Event_Player_Replaced);
-        HookEvent("bot_player_replace", Event_Bot_Replaced);
+        HookEvent("player_bot_replace", Event_Player_Replaced, EventHookMode_Pre);
+        HookEvent("bot_player_replace", Event_Bot_Replaced, EventHookMode_Pre);
         HookEvent("player_hurt",		Event_Player_Hurt);
         HookEvent("player_entered_checkpoint", Event_Player_Entered_Checkpoint);
         
@@ -626,12 +626,18 @@ void Event_Bot_Replaced(Event event, const char[] name, bool dontBroadcast)
             g_iOwner[i] = client;
 
         if( g_iLastRevive[i] == bot)
-        {
+        {     
             g_iLastRevive[i] = 0;
+
+            SetEntPropEnt(i, Prop_Send, "m_reviveTarget", -1);
 
             SetEntPropEnt(client, Prop_Send, "m_reviveOwner", -1);
             SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", 0.0);
             SetEntPropFloat(client, Prop_Send, "m_flProgressBarDuration", 0.0);
+
+            SetEntPropEnt(bot, Prop_Send, "m_reviveOwner", -1);
+            SetEntPropFloat(bot, Prop_Send, "m_flProgressBarStartTime", 0.0);
+            SetEntPropFloat(bot, Prop_Send, "m_flProgressBarDuration", 0.0);
         }
     }
 }
