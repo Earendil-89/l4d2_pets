@@ -347,8 +347,8 @@ void SwitchPlugin()
         HookEvent("round_end",			Event_Round_End, EventHookMode_PostNoCopy);
         HookEvent("player_spawn",		Event_Player_Spawn);
         HookEvent("player_death",		Event_Player_Death);
-        HookEvent("player_bot_replace", Event_Player_Replaced, EventHookMode_Pre);
-        HookEvent("bot_player_replace", Event_Bot_Replaced, EventHookMode_Pre);
+        HookEvent("player_bot_replace", Event_Player_Replaced);
+        HookEvent("bot_player_replace", Event_Bot_Replaced);
         HookEvent("player_hurt",		Event_Player_Hurt);
         HookEvent("player_entered_checkpoint", Event_Player_Entered_Checkpoint);
         
@@ -586,16 +586,8 @@ Action Event_Player_Death(Event event, const char[] name, bool dontBroadcast)
 Action Event_Player_Replaced(Event event, const char[] name, bool dontBroadcast)
 {
     int client = GetClientOfUserId(event.GetInt("player"));
-    if( GetClientTeam(client) == 3 ) // Teamchange? Kill pet
-    {
-        for( int i = 1; i <= MaxClients; i++ )
-        {
-            if( g_iOwner[i] == client )
-                KillPet(i);
-        }	
-        return Plugin_Continue;
-    }
     int bot = GetClientOfUserId(event.GetInt("bot"));
+
     for( int i = 1; i <= MaxClients; i++ )
     {
         if( g_iOwner[i] == client )
@@ -605,13 +597,26 @@ Action Event_Player_Replaced(Event event, const char[] name, bool dontBroadcast)
         {
             g_iLastRevive[i] = 0;
 
+            SetEntPropEnt(i, Prop_Send, "m_reviveTarget", -1);
+
+            SetEntPropEnt(client, Prop_Send, "m_reviveOwner", -1);
+            SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", 0.0);
+            SetEntPropFloat(client, Prop_Send, "m_flProgressBarDuration", 0.0);
+
             SetEntPropEnt(bot, Prop_Send, "m_reviveOwner", -1);
             SetEntPropFloat(bot, Prop_Send, "m_flProgressBarStartTime", 0.0);
             SetEntPropFloat(bot, Prop_Send, "m_flProgressBarDuration", 0.0);
         }
     }
 
-    
+    if( GetClientTeam(client) == 3 ) // Teamchange? Kill pet
+    {
+        for( int i = 1; i <= MaxClients; i++ )
+        {
+            if( g_iOwner[i] == client )
+                KillPet(i);
+        }
+    }   
     return Plugin_Continue;
 }
 
@@ -1094,42 +1099,45 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
             int target = GetPlayerCarry(pet);
 
-            float fDuration = -1.0;
-
-            Call_StartForward(g_fwOnCanPetReviveIncap);
-
-            Call_PushCell(target);
-            Call_PushCell(pet);
-            Call_PushCell(g_iOwner[pet]);
-
-            Call_PushFloatRef(fDuration);
-
-            Call_Finish();
-
-            if(fDuration >= 0.0 && GetEntPropEnt(target, Prop_Send, "m_reviveOwner") == -1 && g_iLastRevive[pet] == 0)
+            if(L4D_IsPlayerIncapacitated(target))
             {
-                nextTarget = target;
+                float fDuration = -1.0;
 
-                float vIncapped[3];
-                GetClientAbsOrigin(target, vIncapped);
+                Call_StartForward(g_fwOnCanPetReviveIncap);
 
-                if(GetVectorDistance(vIncapped, vPet, false) < 128.0)
+                Call_PushCell(target);
+                Call_PushCell(pet);
+                Call_PushCell(g_iOwner[pet]);
+
+                Call_PushFloatRef(fDuration);
+
+                Call_Finish();
+
+                if(fDuration >= 0.0 && GetEntPropEnt(target, Prop_Send, "m_reviveOwner") == -1 && g_iLastRevive[pet] == 0)
                 {
-                    if(fDuration == 0.0)
+                    nextTarget = target;
+
+                    float vIncapped[3];
+                    GetClientAbsOrigin(target, vIncapped);
+
+                    if(GetVectorDistance(vIncapped, vPet, false) < 128.0)
                     {
-                        ReviveWithOwnership(target, g_iOwner[pet]);
-                    }
-                    else
-                    {
-                        SetEntityMoveType(pet, MOVETYPE_NONE);
+                        if(fDuration == 0.0)
+                        {
+                            ReviveWithOwnership(target, g_iOwner[pet]);
+                        }
+                        else
+                        {
+                            SetEntityMoveType(pet, MOVETYPE_NONE);
 
-                        SetEntPropFloat(target, Prop_Send, "m_flProgressBarStartTime", GetGameTime());
-                        SetEntPropFloat(target, Prop_Send, "m_flProgressBarDuration", fDuration);
-                        SetEntPropEnt(target, Prop_Send, "m_reviveOwner", pet);
+                            SetEntPropFloat(target, Prop_Send, "m_flProgressBarStartTime", GetGameTime());
+                            SetEntPropFloat(target, Prop_Send, "m_flProgressBarDuration", fDuration);
+                            SetEntPropEnt(target, Prop_Send, "m_reviveOwner", pet);
 
-                        g_iLastRevive[pet] = target;
+                            g_iLastRevive[pet] = target;
 
-                        CreateTimer(0.1, Timer_CheckPetReviveIncap, GetClientUserId(pet), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
+                            CreateTimer(0.1, Timer_CheckPetReviveIncap, GetClientUserId(pet), TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
+                        }
                     }
                 }
             }
