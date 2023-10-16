@@ -558,6 +558,8 @@ Action Event_Player_Death(Event event, const char[] name, bool dontBroadcast)
         int trueVictim = g_iLastRevive[client];
 
         SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarStartTime", 0.0);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarDuration", 0.0);
 
         g_iLastRevive[client] = 0;
     }
@@ -604,6 +606,8 @@ Action Event_Player_Replaced(Event event, const char[] name, bool dontBroadcast)
             g_iLastRevive[i] = 0;
 
             SetEntPropEnt(bot, Prop_Send, "m_reviveOwner", -1);
+            SetEntPropFloat(bot, Prop_Send, "m_flProgressBarStartTime", 0.0);
+            SetEntPropFloat(bot, Prop_Send, "m_flProgressBarDuration", 0.0);
         }
     }
 
@@ -626,6 +630,8 @@ void Event_Bot_Replaced(Event event, const char[] name, bool dontBroadcast)
             g_iLastRevive[i] = 0;
 
             SetEntPropEnt(client, Prop_Send, "m_reviveOwner", -1);
+            SetEntPropFloat(client, Prop_Send, "m_flProgressBarStartTime", 0.0);
+            SetEntPropFloat(client, Prop_Send, "m_flProgressBarDuration", 0.0);
         }
     }
 }
@@ -841,6 +847,8 @@ public Action Timer_CheckPetReviveIncap(Handle hTimer, int userid)
 
         SetEntityMoveType(attacker, MOVETYPE_WALK);
         SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarStartTime", 0.0);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarDuration", 0.0);
         g_iLastRevive[attacker] = 0;
         return Plugin_Stop;
     }
@@ -860,6 +868,8 @@ public Action Timer_CheckPetReviveIncap(Handle hTimer, int userid)
         int trueVictim = g_iLastRevive[attacker];
         SetEntityMoveType(attacker, MOVETYPE_WALK);
         SetEntPropEnt(trueVictim, Prop_Send, "m_reviveOwner", -1);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarStartTime", 0.0);
+        SetEntPropFloat(trueVictim, Prop_Send, "m_flProgressBarDuration", 0.0);
         g_iLastRevive[attacker] = 0;
         return Plugin_Stop;
     }
@@ -963,12 +973,31 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 * ========================================================================================= */
 Action ChangeVictim_Timer(Handle timer, int pet)
 {
+    float vPet[3];
+    GetClientAbsOrigin(pet, vPet);
+
     for(int i = 1; i <= MaxClients; i++ )
     {
-        // Not incapped but has revive owner
-        if( IsClientInGame(i) && GetClientTeam(i) == 2 && IsPlayerAlive(i) && !L4D_IsPlayerIncapacitated(i) && GetEntPropEnt(i, Prop_Send, "m_reviveOwner") == pet)
+        if(!IsClientInGame(i))
+            continue;
+            
+        else if(L4D_GetClientTeam(i) != L4DTeam_Survivor)
+            continue;
+            
+        else if(!IsPlayerAlive(i))
+            continue;
+
+        else if(GetEntPropEnt(i, Prop_Send, "m_reviveOwner") != pet)
+            continue;
+
+        float vIncapped[3];
+        GetClientAbsOrigin(i, vIncapped);   
+        
+        if(!L4D_IsPlayerIncapacitated(i) || GetVectorDistance(vIncapped, vPet, false) >= 128.0)
         {
             SetEntPropEnt(i, Prop_Send, "m_reviveOwner", -1);
+            SetEntPropFloat(i, Prop_Send, "m_flProgressBarStartTime", 0.0);
+            SetEntPropFloat(i, Prop_Send, "m_flProgressBarDuration", 0.0);
         }
     }
 
@@ -1010,12 +1039,11 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     g_hPetVictimTimer[pet] = null;
     float vTarget[3];
     float vOwner[3];
-    float vPet[3];
+
     float fDist = g_fPetDist;
     int nextTarget = 0;
 
     GetClientAbsOrigin(owner, vOwner);
-    GetClientAbsOrigin(pet, vPet);
 
     if(IsNotCarryable(owner) && !IsFakeClient(owner) && L4D_GetPinnedInfected(owner) == 0 && g_iPetCarrySlowSurvivors != 0)
     {
@@ -1704,6 +1732,8 @@ stock void ReviveWithOwnership(int victim, int reviver)
     g_iOverrideRevive = reviver;
 
     SetEntPropEnt(victim, Prop_Send, "m_reviveOwner", -1);
+    SetEntPropFloat(victim, Prop_Send, "m_flProgressBarStartTime", 0.0);
+    SetEntPropFloat(victim, Prop_Send, "m_flProgressBarDuration", 0.0);
 
     HookEvent("revive_success", Event_ReviveSuccessPre, EventHookMode_Pre);
     L4D_ReviveSurvivor(victim);
