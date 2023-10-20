@@ -998,7 +998,19 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         else if(!IsPlayerAlive(i))
             continue;
 
-        else if(GetEntPropEnt(i, Prop_Send, "m_reviveOwner") != pet)
+        int target = GetEntPropEnt(i, Prop_Send, "m_reviveTarget");
+
+    
+        if(target != -1)
+        {
+            // Critical bug fix...
+            if(GetEntPropEnt(target, Prop_Send, "m_reviveOwner") != i)
+            {
+                SetEntPropEnt(i, Prop_Send, "m_reviveTarget", -1);
+            }
+        }
+
+        if(GetEntPropEnt(i, Prop_Send, "m_reviveOwner") != pet)
             continue;
 
         float vIncapped[3];
