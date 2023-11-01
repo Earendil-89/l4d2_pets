@@ -61,6 +61,7 @@ ConVar g_hPetCarrySlowSurvivors;
 
 GlobalForward g_fwOnCanHavePets;
 GlobalForward g_fwOnCanPetReviveIncap;
+GlobalForward g_fwOnTryEndCarry;
 
 bool g_bAllowedGamemode;
 bool g_bPluginOn;
@@ -81,8 +82,13 @@ float g_fPetDist;
 float g_fPetUpdateRate;
 // victim to attacker.
 float g_fImaginaryDamage[MAXPLAYERS+1][MAXPLAYERS+1];
+// g_fNextOpenDoor[pet][door]
+float g_fNextOpenDoor[MAXPLAYERS+1][2049];
 Handle g_hDetThreat, g_hDetThreatL4D1, g_hDetTarget, g_hDetLeap;
 Handle g_hPetVictimTimer[MAXPLAYERS + 1];
+
+int g_iDistanceDoor = 0;
+float g_fTargetOrigin[3];
 
 // When pet revives with ownership
 int g_iOverrideRevive = 0;
@@ -101,10 +107,43 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
     if( GetEngineVersion() == Engine_Left4Dead2 )
+    {
+        CreateNative("L4D2_Pets_ForceCarry", Native_ForceCarry);
+        CreateNative("L4D2_Pets_GetCarrier", Native_GetCarrier);
         return APLRes_Success;
-    
+    }
     strcopy(error, err_max, "Plugin only supports Left 4 Dead 1 & 2");
     return APLRes_SilentFailure;
+}
+
+public int Native_ForceCarry(Handle caller, int numParams)
+{
+    int client = GetNativeCell(1);
+    int pet = GetNativeCell(2);
+
+    if(pet == -1 && g_iCarrier[client] != -1)
+    {
+        EndCarryBetweenPlayers(pet, client);
+    }
+    else
+    {
+        g_iCarrier[client] = pet;
+    }
+
+    if(pet != -1 && g_hPetVictimTimer[pet] != INVALID_HANDLE)
+    {
+        TriggerTimer(g_hPetVictimTimer[pet]);
+    }
+
+    return 0;
+}
+
+
+public int Native_GetCarrier(Handle caller, int numParams)
+{
+    int client = GetNativeCell(1);
+
+    return g_iCarrier[client];
 }
 
 public void OnPluginStart()
@@ -131,6 +170,7 @@ public void OnPluginStart()
 
     g_fwOnCanHavePets = CreateGlobalForward("L4D2_Pets_OnCanHavePets", ET_Event, Param_Cell, Param_Cell, Param_CellByRef);
     g_fwOnCanPetReviveIncap = CreateGlobalForward("L4D2_Pets_OnCanPetReviveIncap", ET_Event, Param_Cell, Param_Cell, Param_Cell, Param_FloatByRef);
+    g_fwOnTryEndCarry = CreateGlobalForward("L4D2_Pets_OnTryEndCarry", ET_Event, Param_Cell, Param_Cell, Param_Cell);
     
     g_hAllow.AddChangeHook(CvarChange_Enable);
     g_hGameModes.AddChangeHook(CvarChange_Enable);
@@ -192,7 +232,88 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     for( int i = 1; i < MaxClients; i++ )
+    {
         g_iOwner[i] = 0;
+
+        for(int door=0;door < sizeof(g_fNextOpenDoor[]);door++)
+        {
+            g_fNextOpenDoor[i][door] = 0.0;
+        }
+    }
+
+    g_fTargetOrigin = NULL_VECTOR;
+
+    CreateTimer(0.5, Timer_PetsOpenDoors, _, TIMER_FLAG_NO_MAPCHANGE|TIMER_REPEAT);
+}
+
+public Action Timer_PetsOpenDoors(Handle hTimer)
+{
+    for(int i=1;i <= MaxClients;i++)
+    {
+        if(!IsClientInGame(i))
+            continue;
+
+        else if(!IsPlayerAlive(i))
+            continue;
+
+        else if(g_iOwner[i] == 0)
+            continue;
+
+        int count = GetEntityCount();
+
+        float fOrigin[3];
+        GetEntPropVector(i, Prop_Data, "m_vecAbsOrigin", fOrigin);
+
+        for (int door = MaxClients+1;door < count;door++)
+        {
+            if(!IsValidEdict(door))
+                continue;
+
+            else if(g_fNextOpenDoor[i][door] > GetGameTime())
+                continue;
+
+            char sClassname[64];
+            GetEdictClassname(door, sClassname, sizeof(sClassname));
+
+            if(strncmp(sClassname, "prop_door_rotating", 18) == 0 || strncmp(sClassname, "func_door", 9) == 0)
+            {
+                float fDoorOrigin[3];
+                GetEntPropVector(door, Prop_Data, "m_vecOrigin", fDoorOrigin);
+
+                if(GetVectorDistance(fOrigin, fDoorOrigin) < 128.0)
+                {
+                    // Pets will occasionally be stuck on open safe room doors, so we must ensure the pet can deal with both open and close doors.
+                    g_fNextOpenDoor[i][door] = GetGameTime() + 5.0;
+
+                    char sTargetname[64];
+                    GetEntPropString(i, Prop_Data, "m_iName", sTargetname, sizeof(sTargetname));
+
+                    SetEntPropString(i, Prop_Data, "m_iName", "AverageDoorEnjoyer");
+                    SetVariantString("AverageDoorEnjoyer");
+                    AcceptEntityInput(door, "OpenAwayFrom");
+                    SetEntPropString(i, Prop_Data, "m_iName", sTargetname);
+
+
+
+                    CreateTimer(2.5, Timer_CloseDoor, EntIndexToEntRef(door), TIMER_FLAG_NO_MAPCHANGE);
+                }
+            }
+        }
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Timer_CloseDoor(Handle hTimer, int ref)
+{
+    int door = EntRefToEntIndex(ref);
+
+    if(door == INVALID_ENT_REFERENCE)
+        return Plugin_Stop;
+    
+    AcceptEntityInput(door, "Close");
+    
+    return Plugin_Stop;
 }
 
 public void OnConfigsExecuted()
@@ -281,12 +402,15 @@ public void OnGameFrame()
 
         fOrigin[2] += CARRY_OFFSET - 64.0;
         TeleportEntity(i, fOrigin, NULL_VECTOR, {0.0, 0.0, 0.1});
-
-        if(!IsNotCarryable(g_iOwner[g_iCarrier[i]]) || IsNotCarryable(i) || IsFakeClient(i) || L4D_GetPinnedInfected(i) != 0 || g_iPetCarrySlowSurvivors == 0)
-        {
-            EndCarryBetweenPlayers(g_iCarrier[i], i);
-        }
     }
+}
+
+public Action L4D_OnLedgeGrabbed(int client)
+{
+    if(g_iCarrier[client] != -1)
+        return Plugin_Handled;
+
+    return Plugin_Continue;
 }
 /* ========================================================================================= *
 *                                          ConVars                                          *
@@ -350,7 +474,6 @@ void SwitchPlugin()
         HookEvent("player_bot_replace", Event_Player_Replaced);
         HookEvent("bot_player_replace", Event_Bot_Replaced);
         HookEvent("player_hurt",		Event_Player_Hurt);
-        HookEvent("player_entered_checkpoint", Event_Player_Entered_Checkpoint);
         
         if( !DHookEnableDetour(g_hDetThreat, true, SelectThreat_Post) )
             SetFailState("Failed to detour \"SurvivorBehavior::SelectMoreDangerousThreat\".");
@@ -669,24 +792,6 @@ Action Event_Player_Hurt(Event event, const char[] name, bool dontBroadcast)
     return Plugin_Continue;
 }
 
-
-public Action Event_Player_Entered_Checkpoint(Handle hEvent, char[] Name, bool dontBroadcast)
-{
-    int client = GetClientOfUserId(GetEventInt(hEvent, "userid"));
-    
-    if(client == 0)
-        return Plugin_Continue;
-
-    else if(g_iOwner[client] == 0)
-        return Plugin_Continue;
-
-    else if(GetPlayerCarry(client) == -1)
-        return Plugin_Continue;
-
-    EndCarryBetweenPlayers(client, GetPlayerCarry(client));
-
-    return Plugin_Continue;
-}
 public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
 {
     if( g_iOwner[client] == 0) return Plugin_Continue;
@@ -731,6 +836,9 @@ Action SoundHook(int clients[64], int &numClients, char sample[PLATFORM_MAX_PATH
 
 public Action L4D2_OnChooseVictim(int specialInfected, int &curTarget)
 {   
+    if(g_iLastCommand[specialInfected] == -2)
+        return Plugin_Stop;
+
     return OnChooseVictim(specialInfected, curTarget);
 }
 
@@ -987,6 +1095,29 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     float vPet[3];
     GetClientAbsOrigin(pet, vPet);
 
+    int carried = GetPlayerCarry(pet);
+
+    if(carried != -1)
+    { 
+        if(!IsNotCarryable(g_iOwner[pet]) || IsNotCarryable(carried) || L4D_GetPinnedInfected(carried) != 0 || g_iPetCarrySlowSurvivors == 0)
+        {    
+            Call_StartForward(g_fwOnTryEndCarry);
+
+            Call_PushCell(carried);
+            Call_PushCell(pet);
+            Call_PushCell(g_iOwner[pet]);
+
+            Action rtn;
+            Call_Finish(rtn);
+
+            if(rtn < Plugin_Handled)
+            {
+                EndCarryBetweenPlayers(pet, carried);
+                g_iLastCommand[pet] = 0;
+            }
+        }
+    }
+
     for(int i = 1; i <= MaxClients; i++ )
     {
         if(!IsClientInGame(i))
@@ -1068,7 +1199,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
     GetClientAbsOrigin(owner, vOwner);
 
-    if(IsNotCarryable(owner) && !IsFakeClient(owner) && L4D_GetPinnedInfected(owner) == 0 && g_iPetCarrySlowSurvivors != 0)
+    if(IsNotCarryable(owner) && !IsFakeClient(owner) && g_iPetCarrySlowSurvivors != 0 && GetCarryTargetOrigin(pet))
     {
         fDist = Pow(131071.0, 2.0);
 
@@ -1076,7 +1207,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         {
             for( int i = 1; i <= MaxClients; i++ )
             {
-                if(IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 2 && !IsNotCarryable(i) && L4D_GetPinnedInfected(i) == 0 && (g_iPetCarrySlowSurvivors == 2 || !L4D_IsPlayerIncapacitated(i)))
+                if(IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 2 && g_iCarrier[i] == -1 && !IsNotCarryable(i) && L4D_GetPinnedInfected(i) == 0 && (g_iPetCarrySlowSurvivors == 2 || !L4D_IsPlayerIncapacitated(i)))
                 {
                     GetClientAbsOrigin(i, vTarget);
                     GetClientAbsOrigin(owner, vPet);
@@ -1095,18 +1226,22 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         {
             nextTarget = owner;
 
-            if(g_iLastCommand[pet] != 0)
+            if(g_iLastCommand[pet] != -2)
             {
-                g_iLastCommand[pet] = 0;
+                g_iLastCommand[pet] = -2;
 
                 int door = L4D_GetCheckpointLast();
 
-                if(door == -1)
-                    return Plugin_Continue;
+                if(door != -1)
+                {
+                    if((g_fTargetOrigin[0] == 0.0 && g_fTargetOrigin[1] == 0.0 && g_fTargetOrigin[2] == 0.0) || !L4D_IsPositionInLastCheckpoint(g_fTargetOrigin))
+                    {
+                        g_iDistanceDoor = 256;
+                        FindRandomSpotInSafeRoom(false, g_fTargetOrigin);
+                    }
+                }
 
-                float fDoorOrigin[3];
-                GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
-                L4D2_CommandABot(pet, nextTarget, BOT_CMD_MOVE, fDoorOrigin);
+                //L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, g_fTargetOrigin);
             }
 
             int target = GetPlayerCarry(pet);
@@ -1332,16 +1467,59 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         g_iLastCommand[pet] = g_iTarget[pet];
         L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_ATTACK);
     }
-    else if(g_iLastCommand[pet] != -1)
+    else if(g_iLastCommand[pet] != -1 && g_iLastCommand[pet] != -2)
     {
         g_iLastCommand[pet] = -1;
+
         L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_RESET);
+    }
+    else if(g_iLastCommand[pet] == -2)
+    {
+        float fTargetOrigin[3];
+        if(GetCarryTargetOrigin(pet, fTargetOrigin))
+        {
+            L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, fTargetOrigin);
+        }
     }
     g_hPetVictimTimer[pet] = CreateTimer(g_fPetUpdateRate, ChangeVictim_Timer, pet);
     
     return Plugin_Continue;
 }
 
+stock bool GetCarryTargetOrigin(int pet, float fTargetOrigin[3] = NULL_VECTOR)
+{
+    int owner = g_iOwner[pet];
+
+    int carried = GetPlayerCarry(pet);
+
+    if(owner == carried && GetClientButtons(carried) & IN_SPEED)
+    {
+        return false;
+    }
+
+    float fOrigin[3];
+    GetEntPropVector(owner, Prop_Data, "m_vecAbsOrigin", fOrigin);
+
+    
+    if(L4D2_NavAreaBuildPath(L4D_GetNearestNavArea(fOrigin), L4D_GetNearestNavArea(g_fTargetOrigin), 65535.0, 2, false))
+    {
+        fTargetOrigin = g_fTargetOrigin;
+        return true;
+    }
+
+    int finale = FindEntityByClassname(-1, "trigger_finale");
+    int elevator = FindEntityByClassname(-1, "func_elevator");
+
+    if(finale == -1 || elevator != -1)
+    {
+        return false;
+    }
+
+    GetEntPropVector(finale, Prop_Data, "m_vecAbsOrigin", fTargetOrigin);
+
+    return true;
+
+}
 /* ========================================================================================= *
 *                                        Say Command                                        *
 * ========================================================================================= */
@@ -1516,6 +1694,11 @@ bool SpawnPet(int client, int zClass)
     delete g_hPetVictimTimer[pet];
     g_hPetVictimTimer[pet] = CreateTimer(g_hPetUpdateRate.FloatValue, ChangeVictim_Timer, pet);
 
+    for(int door=0;door < sizeof(g_fNextOpenDoor[]);door++)
+    {
+        g_fNextOpenDoor[pet][door] = 0.0;
+    }
+
     return bReturn;
 }
 
@@ -1636,24 +1819,17 @@ void ResetInfectedAbility(int client, float time)
 
 bool IsNotCarryable(int client)
 {
-    if(L4D_IsInLastCheckpoint(client))
+    if(g_iCarrier[client] != -1 && g_iOwner[g_iCarrier[client]] == client && !L4D_IsInLastCheckpoint(client))
+    {
         return true;
+    }
 
-    int door = L4D_GetCheckpointLast();
-
-    if(door == -1)
-        return false;
+    else if(L4D_IsInLastCheckpoint(client))
+        return true;
 
     else if(IsFakeClient(client))
         return true;
-
-    float fOrigin[3], fDoorOrigin[3];
-    GetEntPropVector(client, Prop_Data, "m_vecAbsOrigin", fOrigin);
-    GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
-
-    if(GetVectorDistance(fOrigin, fDoorOrigin) < 200.0)
-        return true;
-
+    
     return false;
 }
 int GetPlayerCarry(int client)
@@ -1674,7 +1850,7 @@ stock void EndCarryBetweenPlayers(int carrier, int carried)
     g_iCarrier[carried] = -1;
 
     float fOrigin[3];
-    GetEntPropVector(carried, Prop_Data, "m_vecOrigin", fOrigin);
+    GetEntPropVector(carried, Prop_Data, "m_vecAbsOrigin", fOrigin);
 
     if(IsPlayerStuck(carried, fOrigin))
     {
@@ -1682,16 +1858,16 @@ stock void EndCarryBetweenPlayers(int carrier, int carried)
         if(IsPlayerStuck(carried, fOrigin, -1 * CARRY_OFFSET))
         {
             float fCarrierOrigin[3];
-            GetEntPropVector(carrier, Prop_Data, "m_vecOrigin", fCarrierOrigin);
+            GetEntPropVector(carrier, Prop_Data, "m_vecAbsOrigin", fCarrierOrigin);
 
-            TeleportEntity(carried, fCarrierOrigin);
+            TeleportEntity(carried, fCarrierOrigin, NULL_VECTOR, NULL_VECTOR);
         }
         else
         {
             // decrease offset to teleport the carried back to the carrier, and not vise versa.
             fOrigin[2] -= CARRY_OFFSET;
 
-            TeleportEntity(carried, fOrigin);
+            TeleportEntity(carried, fOrigin, NULL_VECTOR, NULL_VECTOR);
 
             int zclass = GetEntProp(carrier, Prop_Send, "m_zombieClass");
 
@@ -1782,6 +1958,164 @@ public Action Event_ReviveSuccessPre(Event event, const char[] name, bool dontBr
     }
 
     return Plugin_Continue;
+}
+
+stock int CountPinnedSurvivors()
+{
+    int count = 0;
+
+    for(int i = 1; i <= MaxClients; i++ )
+    {
+        if(!IsClientInGame(i))
+            continue;
+            
+        else if(L4D_GetClientTeam(i) != L4DTeam_Survivor)
+            continue;
+            
+        else if(!IsPlayerAlive(i))
+            continue;
+
+        else if(L4D_GetPinnedInfected(i) == 0)
+            continue;
+
+        count++;
+    }
+
+    return count;
+}
+
+stock bool FindRandomSpotInSafeRoom(bool bStartSafeRoom, float fOrigin[3])
+{
+    ArrayList aAreas = CreateArray(1);
+    L4D_GetAllNavAreas(aAreas);
+
+    /*
+    for(int i=0;i < aAreas.Length;i++)
+    {
+        float fFlow = L4D2Direct_GetTerrorNavAreaFlow(aAreas.Get(i));
+
+        if(fFlow < 0.0)
+            continue;
+
+        if(winnerArea == Address_Null || fWinnerFlow > fFlow)
+        {
+            fWinnerFlow = fFlow;
+            winnerArea = aAreas.Get(i);
+        }
+    }
+    */
+
+    ArrayList aLotteryAreas = CreateArray(1);
+
+    int totalEntries = 0;
+
+    for(int i=0;i < aAreas.Length;i++)
+    {
+        Address area = aAreas.Get(i);
+        if(!(L4D_GetNavArea_AttributeFlags(area) & NAV_BASE_MOSTLY_FLAT))
+        {
+            aLotteryAreas.Push(0);
+            continue;
+        }
+        // Some stupid maps like Blood Harvest finale and The Passing finale have CHECKPOINT inside a FINALE marked area.
+        else if(L4D_GetNavArea_SpawnAttributes(area) & NAV_SPAWN_FINALE)
+        {
+            aLotteryAreas.Push(0);
+            continue;
+        }
+
+        // https://developer.valvesoftware.com/wiki/List_of_L4D_Series_Nav_Mesh_Attributes
+        else if(!(L4D_GetNavArea_SpawnAttributes(area) & NAV_SPAWN_CHECKPOINT))
+        {
+            aLotteryAreas.Push(0);
+            continue;
+        }
+        
+        float fCenter[3];
+
+        L4D_GetNavAreaCenter(area, fCenter);
+
+        if((bStartSafeRoom && L4D_IsPositionInFirstCheckpoint(fCenter)) || (!bStartSafeRoom && L4D_IsPositionInLastCheckpoint(fCenter)))
+        {
+            // Direct correlation between size of nav area and how likely it is to win the raffle to ensure a random spot is given for the average of the safe room.
+            float fSize[3];
+            L4D_GetNavAreaSize(area, fSize);
+
+            // Ignore height.
+            fSize[2] = 0.0;
+
+            // The bigger the area is, the more likely it is to win the lottery.
+            int entries = RoundFloat(GetVectorLength(fSize));
+            totalEntries += entries;
+
+            aLotteryAreas.Push(entries);
+
+            continue;
+        }
+
+        aLotteryAreas.Push(0);
+    }
+
+    int luckyNumber = GetRandomInt(0, totalEntries);
+    Address luckyArea = Address_Null;
+    
+    int relativeTotalEntries = 0;
+    
+    for(int i=0;i < aLotteryAreas.Length;i++)
+    {
+        // We can do this because they are structured the same.
+        Address area = aAreas.Get(i);
+        int entries = aLotteryAreas.Get(i);
+
+        if(luckyNumber <= relativeTotalEntries + entries)
+        {
+            luckyArea = area;
+            
+            break;
+        }	
+        
+        relativeTotalEntries += entries;
+    }
+
+    float fWinnerSpot[3];
+    L4D_FindRandomSpot(view_as<int>(luckyArea), fWinnerSpot);
+
+    int door = -1;
+
+    while((door = FindEntityByClassname(door, "prop_door_rotating_checkpoint")) != -1)
+    {
+        float fDoorOrigin[3];
+        GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
+
+        if(GetVectorDistance(fDoorOrigin, fWinnerSpot) < g_iDistanceDoor)
+        {
+            // Slowly care less about the distance until it's impossible to ignore.
+            g_iDistanceDoor--;
+
+            return FindRandomSpotInSafeRoom(bStartSafeRoom, fOrigin);
+        }
+    }
+
+    door = -1;
+    
+    // No Mercy first chapter.
+    while((door = FindEntityByClassname(door, "prop_door_rotating")) != -1)
+    {
+        float fDoorOrigin[3];
+        GetEntPropVector(door, Prop_Data, "m_vecAbsOrigin", fDoorOrigin);
+
+        if(GetVectorDistance(fDoorOrigin, fWinnerSpot) < g_iDistanceDoor)
+        {
+            // Slowly care less about the distance until it's impossible to ignore.
+            g_iDistanceDoor--;
+            return FindRandomSpotInSafeRoom(bStartSafeRoom, fOrigin);
+        }
+    }
+
+    CloseHandle(aAreas);
+    fOrigin = fWinnerSpot;
+
+    return true;
 }
 
 /*============================================================================================
