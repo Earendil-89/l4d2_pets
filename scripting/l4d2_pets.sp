@@ -914,6 +914,13 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
     if(priority != 9)
         return Plugin_Continue;
 
+    else if(g_iCarrier[victim] != -1 && (damagetype & DMG_FALL || damagetype & DMG_DROWN))
+    {
+        damage = 0.0;
+        bImmune = true;
+        return Plugin_Stop;
+    }
+
     else if(L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker))
     {
         damage *= g_hPetDmg.FloatValue;
@@ -1199,6 +1206,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
     GetClientAbsOrigin(owner, vOwner);
 
+    // Removing GetCarryTargetOrigin for any reason means g_fTargetOrigin is failed to calculate.
     if(IsNotCarryable(owner) && !IsFakeClient(owner) && g_iPetCarrySlowSurvivors != 0 && GetCarryTargetOrigin(pet))
     {
         fDist = Pow(131071.0, 2.0);
@@ -1230,18 +1238,12 @@ Action ChangeVictim_Timer(Handle timer, int pet)
             {
                 g_iLastCommand[pet] = -2;
 
-                int door = L4D_GetCheckpointLast();
+                float fTargetOrigin[3];
 
-                if(door != -1)
+                if(GetCarryTargetOrigin(pet, fTargetOrigin))
                 {
-                    if((g_fTargetOrigin[0] == 0.0 && g_fTargetOrigin[1] == 0.0 && g_fTargetOrigin[2] == 0.0) || !L4D_IsPositionInLastCheckpoint(g_fTargetOrigin))
-                    {
-                        g_iDistanceDoor = 256;
-                        FindRandomSpotInSafeRoom(false, g_fTargetOrigin);
-                    }
+                    L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, fTargetOrigin);
                 }
-
-                //L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, g_fTargetOrigin);
             }
 
             int target = GetPlayerCarry(pet);
@@ -1473,14 +1475,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
         L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_RESET);
     }
-    else if(g_iLastCommand[pet] == -2)
-    {
-        float fTargetOrigin[3];
-        if(GetCarryTargetOrigin(pet, fTargetOrigin))
-        {
-            L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, fTargetOrigin);
-        }
-    }
+
     g_hPetVictimTimer[pet] = CreateTimer(g_fPetUpdateRate, ChangeVictim_Timer, pet);
     
     return Plugin_Continue;
@@ -1488,6 +1483,17 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
 stock bool GetCarryTargetOrigin(int pet, float fTargetOrigin[3] = NULL_VECTOR)
 {
+    int door = L4D_GetCheckpointLast();
+
+    if(door != -1)
+    {
+        if((g_fTargetOrigin[0] == 0.0 && g_fTargetOrigin[1] == 0.0 && g_fTargetOrigin[2] == 0.0) || !L4D_IsPositionInLastCheckpoint(g_fTargetOrigin))
+        {
+            g_iDistanceDoor = 256;
+            FindRandomSpotInSafeRoom(false, g_fTargetOrigin);
+        }
+    }
+
     int owner = g_iOwner[pet];
 
     int carried = GetPlayerCarry(pet);
@@ -1500,7 +1506,6 @@ stock bool GetCarryTargetOrigin(int pet, float fTargetOrigin[3] = NULL_VECTOR)
     float fOrigin[3];
     GetEntPropVector(owner, Prop_Data, "m_vecAbsOrigin", fOrigin);
 
-    
     if(L4D2_NavAreaBuildPath(L4D_GetNearestNavArea(fOrigin), L4D_GetNearestNavArea(g_fTargetOrigin), 65535.0, 2, false))
     {
         fTargetOrigin = g_fTargetOrigin;
