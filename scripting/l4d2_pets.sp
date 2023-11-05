@@ -34,7 +34,7 @@
 
 //#tryinclude <actions>
 
-#define CARRY_OFFSET 55.0
+#define CARRY_OFFSET 45.0
 
 #define FCVAR_FLAGS FCVAR_NOTIFY
 #define PLUGIN_VERSION "1.1.2"
@@ -74,6 +74,8 @@ int g_iCarrier[MAXPLAYERS+1] = { -1, ... };
 int g_iLastRevive[MAXPLAYERS+1];
 int g_iOwner[MAXPLAYERS + 1];		// Who owns this pet?
 int g_iLastCommand[MAXPLAYERS + 1] = { -1, ... };		// Last player this pet was sent to attack, 0 = move to a position
+//float g_fLastFlow[MAXPLAYERS+1];
+float g_fLastBracket[MAXPLAYERS+1];
 int g_iTarget[MAXPLAYERS + 1];	// Pet can target another special infected to protect its owner
 int g_iNextCheck[MAXPLAYERS + 1];
 int g_iPetTargetMethod;
@@ -123,11 +125,11 @@ public int Native_ForceCarry(Handle caller, int numParams)
 
     if(pet == -1 && g_iCarrier[client] != -1)
     {
-        EndCarryBetweenPlayers(pet, client);
+        EndCarryBetweenPlayers(g_iCarrier[client], client);
     }
     else
     {
-        g_iCarrier[client] = pet;
+        StartCarryBetweenPlayers(pet, client);
     }
 
     if(pet != -1 && g_hPetVictimTimer[pet] != INVALID_HANDLE)
@@ -275,12 +277,13 @@ public Action Timer_PetsOpenDoors(Handle hTimer)
             char sClassname[64];
             GetEdictClassname(door, sClassname, sizeof(sClassname));
 
-            if(strncmp(sClassname, "prop_door_rotating", 18) == 0 || strncmp(sClassname, "func_door", 9) == 0)
+            if((strncmp(sClassname, "prop_door_rotating", 18) == 0 && !(GetEntProp(door, Prop_Data, "m_spawnflags") & 32768)) || (strncmp(sClassname, "func_door", 9) == 0 && GetEntProp(door, Prop_Data, "m_spawnflags") & 256))
             {
+
                 float fDoorOrigin[3];
                 GetEntPropVector(door, Prop_Data, "m_vecOrigin", fDoorOrigin);
 
-                if(GetVectorDistance(fOrigin, fDoorOrigin) < 128.0)
+                if(GetVectorDistance(fOrigin, fDoorOrigin) < 225.0)
                 {
                     // Pets will occasionally be stuck on open safe room doors, so we must ensure the pet can deal with both open and close doors.
                     g_fNextOpenDoor[i][door] = GetGameTime() + 5.0;
@@ -405,6 +408,16 @@ public void OnGameFrame()
     }
 }
 
+public Action L4D2_OnHitByVomitJar(int victim, int &attacker)
+{
+    if(L4D_GetClientTeam(attacker) != L4DTeam_Survivor)
+        return Plugin_Continue;
+
+    else if(g_iOwner[victim] == 0)
+        return Plugin_Continue;
+
+    return Plugin_Handled;
+}
 public Action L4D_OnLedgeGrabbed(int client)
 {
     if(g_iCarrier[client] != -1)
@@ -474,6 +487,7 @@ void SwitchPlugin()
         HookEvent("player_bot_replace", Event_Player_Replaced);
         HookEvent("bot_player_replace", Event_Bot_Replaced);
         HookEvent("player_hurt",		Event_Player_Hurt);
+        HookEvent("charger_carry_start", Event_Charger_Carry_Start);
         
         if( !DHookEnableDetour(g_hDetThreat, true, SelectThreat_Post) )
             SetFailState("Failed to detour \"SurvivorBehavior::SelectMoreDangerousThreat\".");
@@ -792,6 +806,22 @@ Action Event_Player_Hurt(Event event, const char[] name, bool dontBroadcast)
     return Plugin_Continue;
 }
 
+
+Action Event_Charger_Carry_Start(Event event, const char[] name, bool dontBroadcast)
+{
+    int victim = GetClientOfUserId(event.GetInt("userid"));
+    
+    if(victim == 0)
+        return Plugin_Continue;
+    
+    else if(g_iCarrier[victim] == -1)
+        return Plugin_Continue;
+
+    EndCarryBetweenPlayers(g_iCarrier[victim], victim, true);
+
+    return Plugin_Continue;
+}
+
 public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3], float angles[3], int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2])
 {
     if( g_iOwner[client] == 0) return Plugin_Continue;
@@ -914,13 +944,6 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
     if(priority != 9)
         return Plugin_Continue;
 
-    else if(g_iCarrier[victim] != -1 && (damagetype & DMG_FALL || damagetype & DMG_DROWN))
-    {
-        damage = 0.0;
-        bImmune = true;
-        return Plugin_Stop;
-    }
-
     else if(L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker))
     {
         damage *= g_hPetDmg.FloatValue;
@@ -952,8 +975,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
 
     if(g_iPetCarrySlowSurvivors != 0 && GetPlayerCarry(attacker) == -1 && L4D_GetClientTeam(victim) == L4DTeam_Survivor && IsNotCarryable(g_iOwner[attacker]) && !IsNotCarryable(victim))
     {
-        g_iCarrier[victim] = attacker;
-        TriggerTimer(g_hPetVictimTimer[attacker]);
+        StartCarryBetweenPlayers(attacker, victim);
         //SetPetBlindState(attacker, true);
     }
 
@@ -1120,7 +1142,6 @@ Action ChangeVictim_Timer(Handle timer, int pet)
             if(rtn < Plugin_Handled)
             {
                 EndCarryBetweenPlayers(pet, carried);
-                g_iLastCommand[pet] = 0;
             }
         }
     }
@@ -1206,8 +1227,20 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
     GetClientAbsOrigin(owner, vOwner);
 
-    // Removing GetCarryTargetOrigin for any reason means g_fTargetOrigin is failed to calculate.
-    if(IsNotCarryable(owner) && !IsFakeClient(owner) && g_iPetCarrySlowSurvivors != 0 && GetCarryTargetOrigin(pet))
+    int door = L4D_GetCheckpointLast();
+
+    if(door != -1)
+    {
+        if((g_fTargetOrigin[0] == 0.0 && g_fTargetOrigin[1] == 0.0 && g_fTargetOrigin[2] == 0.0) || !L4D_IsPositionInLastCheckpoint(g_fTargetOrigin))
+        {
+            g_iDistanceDoor = 256;
+            FindRandomSpotInSafeRoom(false, g_fTargetOrigin);
+        }
+    }
+
+    // PrintToChatAll("%i %i %i %i", IsNotCarryable(owner), !IsFakeClient(owner), g_iPetCarrySlowSurvivors != 0, GetCarryTargetOrigin(pet));
+
+    if(IsNotCarryable(owner) && L4D_GetPinnedInfected(owner) == 0 && !IsFakeClient(owner) && g_iPetCarrySlowSurvivors != 0 && GetCarryTargetOrigin(pet))
     {
         fDist = Pow(131071.0, 2.0);
 
@@ -1237,13 +1270,6 @@ Action ChangeVictim_Timer(Handle timer, int pet)
             if(g_iLastCommand[pet] != -2)
             {
                 g_iLastCommand[pet] = -2;
-
-                float fTargetOrigin[3];
-
-                if(GetCarryTargetOrigin(pet, fTargetOrigin))
-                {
-                    L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, fTargetOrigin);
-                }
             }
 
             int target = GetPlayerCarry(pet);
@@ -1294,6 +1320,11 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     }
     else
     {
+        if(g_iLastCommand[pet] == -2)
+        {
+            // Bug where you can't BOT_CMD_ATTACK during BOT_CMD_MOVE
+            g_iLastCommand[pet] = 99999;
+        }
         switch(g_iPetTargetMethod)
         {
             case 0:
@@ -1459,22 +1490,56 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         }
     }
 
-    if(nextTarget == owner)
-        nextTarget = 0;
-
     g_iTarget[pet] = nextTarget;
 
-    if(IsPlayer(g_iTarget[pet]) && g_iTarget[pet] != owner && g_iLastCommand[pet] != g_iTarget[pet])
-    {
-        g_iLastCommand[pet] = g_iTarget[pet];
-        L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_ATTACK);
-    }
-    else if(g_iLastCommand[pet] != -1 && g_iLastCommand[pet] != -2)
-    {
-        g_iLastCommand[pet] = -1;
+    float fPetOrigin[3];
+    GetEntPropVector(pet, Prop_Data, "m_vecAbsOrigin", fPetOrigin);
 
-        L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_RESET);
+    //float fPetFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(L4D_GetNearestNavArea(fPetOrigin)) / L4D2Direct_GetMapMaxFlowDistance()) * 100.0;
+
+    bool bShouldUpdate = false;
+
+    float fLastBracket = g_fLastBracket[pet];
+
+    float fFlowIncrease = 325.0;
+
+    g_fLastBracket[pet] += (fFlowIncrease / L4D2Direct_GetMapMaxFlowDistance()) * 100.0 * g_fPetUpdateRate;
+
+    if(GetNextBracketPercent(fLastBracket) < GetNextBracketPercent(g_fLastBracket[pet]))
+        bShouldUpdate = true;
+
+    //PrintToChatAll("%.1f %.1f %i %.1f", g_fLastBracket[pet], fPetFlowPercent, bShouldUpdate, L4D2Direct_GetMapMaxFlowDistance());
+
+    if(g_iLastCommand[pet] != -2)
+    {
+        if(g_iLastCommand[pet] != g_iTarget[pet])
+        {
+            if(IsPlayer(g_iTarget[pet]))
+            {
+                g_iLastCommand[pet] = g_iTarget[pet];
+
+                L4D2_CommandABot(pet, 0, BOT_CMD_RESET);
+                L4D2_CommandABot(pet, g_iTarget[pet], BOT_CMD_ATTACK);
+            }
+            else if(g_iLastCommand[pet] != -1)
+            {
+                g_iLastCommand[pet] = -1;
+
+                L4D2_CommandABot(pet, 0, BOT_CMD_RESET);
+            }
+        }
     }
+    else if(bShouldUpdate)
+    {
+        float fTargetOrigin[3];
+        if(GetCarryTargetOrigin(pet, fTargetOrigin))
+        {
+            //PrintToChatAll("a %.1f %.1f %.1f %.5f %.5f", fTargetOrigin[0], fTargetOrigin[1], fTargetOrigin[2], fPetFlowPercent, g_fLastBracket[pet]);
+            L4D2_CommandABot(pet, 0, BOT_CMD_MOVE, fTargetOrigin);
+        }
+    }   
+    
+    //g_fLastFlow[pet] = fPetFlowPercent;
 
     g_hPetVictimTimer[pet] = CreateTimer(g_fPetUpdateRate, ChangeVictim_Timer, pet);
     
@@ -1483,47 +1548,43 @@ Action ChangeVictim_Timer(Handle timer, int pet)
 
 stock bool GetCarryTargetOrigin(int pet, float fTargetOrigin[3] = NULL_VECTOR)
 {
-    int door = L4D_GetCheckpointLast();
-
-    if(door != -1)
-    {
-        if((g_fTargetOrigin[0] == 0.0 && g_fTargetOrigin[1] == 0.0 && g_fTargetOrigin[2] == 0.0) || !L4D_IsPositionInLastCheckpoint(g_fTargetOrigin))
-        {
-            g_iDistanceDoor = 256;
-            FindRandomSpotInSafeRoom(false, g_fTargetOrigin);
-        }
-    }
-
     int owner = g_iOwner[pet];
 
     int carried = GetPlayerCarry(pet);
 
     if(owner == carried && GetClientButtons(carried) & IN_SPEED)
     {
+        SetupInitialBracket(pet);
         return false;
     }
 
     float fOrigin[3];
-    GetEntPropVector(owner, Prop_Data, "m_vecAbsOrigin", fOrigin);
-
-    if(L4D2_NavAreaBuildPath(L4D_GetNearestNavArea(fOrigin), L4D_GetNearestNavArea(g_fTargetOrigin), 65535.0, 2, false))
-    {
-        fTargetOrigin = g_fTargetOrigin;
-        return true;
-    }
+    GetEntPropVector(pet, Prop_Data, "m_vecAbsOrigin", fOrigin);
 
     int finale = FindEntityByClassname(-1, "trigger_finale");
     int elevator = FindEntityByClassname(-1, "func_elevator");
 
-    if(finale == -1 || elevator != -1)
-    {
+    //PrintToChatAll("%i %f %f %f", L4D2_NavAreaBuildPath(L4D_GetNearestNavArea(fOrigin), L4D_GetNearestNavArea(g_fTargetOrigin), 65535.0, 2, false), g_fTargetOrigin[0], g_fTargetOrigin[1], g_fTargetOrigin[2]);
+
+
+    if(elevator != -1)
         return false;
+
+    else if(finale != -1)
+    {
+        GetEntPropVector(finale, Prop_Data, "m_vecAbsOrigin", fTargetOrigin);
+
+        return true;
     }
 
-    GetEntPropVector(finale, Prop_Data, "m_vecAbsOrigin", fTargetOrigin);
+    if(g_fLastBracket[pet] >= 100.0)
+    {
+        fTargetOrigin = g_fTargetOrigin;
 
-    return true;
+        return true;
+    }
 
+    return FindNextBracketArea(pet, fTargetOrigin);
 }
 /* ========================================================================================= *
 *                                        Say Command                                        *
@@ -1684,6 +1745,8 @@ bool SpawnPet(int client, int zClass)
 
     g_iOwner[pet] = client;
     g_iLastCommand[pet] = -1;
+    g_fLastBracket[pet] = 0.0;
+    //g_fLastFlow[pet] = 0.0;
     SetEntityRenderMode(pet, RENDER_TRANSTEXTURE);	// Set rendermode
     SetEntityRenderColor(pet, 255, 255, 255, g_hPetColor.IntValue);	// Set translucency (color doesn't work)
     SetEntProp(pet, Prop_Send, "m_iGlowType", 3);	// Make pet glow
@@ -1837,6 +1900,7 @@ bool IsNotCarryable(int client)
     
     return false;
 }
+
 int GetPlayerCarry(int client)
 {
     for(int i=1;i <= MaxClients;i++)
@@ -1850,14 +1914,44 @@ int GetPlayerCarry(int client)
     return -1;
 }
 
-stock void EndCarryBetweenPlayers(int carrier, int carried)
+stock void StartCarryBetweenPlayers(int carrier, int carried)
+{
+    g_iCarrier[carried] = carrier;
+
+    SetupInitialBracket(carrier);
+
+    if(g_hPetVictimTimer[carrier] != INVALID_HANDLE)
+    {
+        TriggerTimer(g_hPetVictimTimer[carrier]);
+    }
+}
+
+stock void SetupInitialBracket(int carrier)
+{
+    float fPetOrigin[3];
+    GetEntPropVector(carrier, Prop_Data, "m_vecAbsOrigin", fPetOrigin);
+
+    float fMaxFlow = L4D2Direct_GetMapMaxFlowDistance();
+
+    float fPetFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(L4D_GetNearestNavArea(fPetOrigin)) / fMaxFlow) * 100.0;
+
+    if(fPetFlowPercent <= 0.0)
+        fPetFlowPercent = 0.0;
+
+    // reduce by 0.01 to force calculation immediately by making next timer switch the bracket.
+    g_fLastBracket[carrier] = GetNextBracketPercent(fPetFlowPercent) - 0.01;
+}
+stock void EndCarryBetweenPlayers(int carrier, int carried, bool bDontTeleport = false)
 {
     g_iCarrier[carried] = -1;
+    g_iLastCommand[carrier] = 0;
+    g_fLastBracket[carrier] = 0.0;
+    //g_fLastFlow[carrier] = 0.0;
 
     float fOrigin[3];
     GetEntPropVector(carried, Prop_Data, "m_vecAbsOrigin", fOrigin);
 
-    if(IsPlayerStuck(carried, fOrigin))
+    if(IsPlayerStuck(carried, fOrigin) && !bDontTeleport)
     {
         // -1 * CARRY_OFFSET to teleport the carried back to the carrier, and not vise versa.
         if(IsPlayerStuck(carried, fOrigin, -1 * CARRY_OFFSET))
@@ -1994,22 +2088,6 @@ stock bool FindRandomSpotInSafeRoom(bool bStartSafeRoom, float fOrigin[3])
     ArrayList aAreas = CreateArray(1);
     L4D_GetAllNavAreas(aAreas);
 
-    /*
-    for(int i=0;i < aAreas.Length;i++)
-    {
-        float fFlow = L4D2Direct_GetTerrorNavAreaFlow(aAreas.Get(i));
-
-        if(fFlow < 0.0)
-            continue;
-
-        if(winnerArea == Address_Null || fWinnerFlow > fFlow)
-        {
-            fWinnerFlow = fFlow;
-            winnerArea = aAreas.Get(i);
-        }
-    }
-    */
-
     ArrayList aLotteryAreas = CreateArray(1);
 
     int totalEntries = 0;
@@ -2017,6 +2095,7 @@ stock bool FindRandomSpotInSafeRoom(bool bStartSafeRoom, float fOrigin[3])
     for(int i=0;i < aAreas.Length;i++)
     {
         Address area = aAreas.Get(i);
+
         if(!(L4D_GetNavArea_AttributeFlags(area) & NAV_BASE_MOSTLY_FLAT))
         {
             aLotteryAreas.Push(0);
@@ -2121,6 +2200,72 @@ stock bool FindRandomSpotInSafeRoom(bool bStartSafeRoom, float fOrigin[3])
     fOrigin = fWinnerSpot;
 
     return true;
+}
+
+stock bool FindNextBracketArea(int pet, float fOrigin[3])
+{
+    float fMaxFlow = L4D2Direct_GetMapMaxFlowDistance();
+
+    float fPetOrigin[3];
+    GetEntPropVector(pet, Prop_Data, "m_vecAbsOrigin", fPetOrigin);
+
+    float fPetFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(L4D_GetNearestNavArea(fPetOrigin)) / fMaxFlow) * 100.0;
+
+    // Rounds to ceil to next multiplier of 5.
+    float fBracketPercent = GetNextBracketPercent(g_fLastBracket[pet]);
+
+    ArrayList aAreas = CreateArray(1);
+    L4D_GetAllNavAreas(aAreas);
+
+    Address winnerArea = Address_Null;
+    float fWinnerPercent = 0.0;
+
+    for(int i=0;i < aAreas.Length;i++)
+    {
+        Address area = aAreas.Get(i);
+
+        float fFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(area) / fMaxFlow) * 100.0;
+
+        if(fFlowPercent < fPetFlowPercent)
+            continue;
+
+        else if(fFlowPercent > fBracketPercent)
+            continue;
+
+        else if(L4D_GetNavArea_AttributeFlags(area) & NAV_BASE_CROUCH)
+            continue;
+        
+        if(fWinnerPercent < fFlowPercent)
+        {
+            winnerArea = area;
+            fWinnerPercent = fFlowPercent;
+        }
+    }
+
+    if(winnerArea == Address_Null)
+    {
+        return false;
+    }
+    
+    float fWinnerSpot[3];
+    L4D_GetNavAreaCenter(winnerArea, fWinnerSpot);
+
+    CloseHandle(aAreas);
+    fOrigin = fWinnerSpot;
+
+    return true;
+}
+
+stock float GetNextBracketPercent(float fLastBracket)
+{
+    int iBracketJumps = 5;
+
+    float fBracketPercent = float(RoundToCeil((fLastBracket + 0.01) / float(iBracketJumps)) * iBracketJumps);
+
+    if(fBracketPercent >= 100.0)
+        return 101.0;
+
+    return fBracketPercent;
 }
 
 /*============================================================================================
