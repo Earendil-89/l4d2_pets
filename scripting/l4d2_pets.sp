@@ -70,6 +70,7 @@ int g_iPetAttack;
 int g_iFlags;
 int g_iGlobPetLim;
 int g_iPlyPetLim;
+bool g_bCarriedThisRound[MAXPLAYERS+1];
 int g_iCarrier[MAXPLAYERS+1] = { -1, ... };
 int g_iLastRevive[MAXPLAYERS+1];
 int g_iOwner[MAXPLAYERS + 1];		// Who owns this pet?
@@ -233,9 +234,11 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-    for( int i = 1; i < MaxClients; i++ )
+    for( int i = 1; i <= MaxClients; i++ )
     {
         g_iOwner[i] = 0;
+        g_bCarriedThisRound[i] = false;
+        g_iCarrier[i] = -1;
 
         for(int door=0;door < sizeof(g_fNextOpenDoor[]);door++)
         {
@@ -358,7 +361,7 @@ public void OnClientDisconnect(int client)
 
 public void OnPluginEnd()
 {
-    for( int i = 1; i < MaxClients; i++ )
+    for( int i = 1; i <= MaxClients; i++ )
     {
         if( g_iOwner[i] != 0 )
         {
@@ -370,7 +373,7 @@ public void OnPluginEnd()
 
 public void OnGameFrame()
 {
-    for(int i=1;i < MaxClients;i++)
+    for(int i=1;i <= MaxClients;i++)
     {
         if(!IsClientInGame(i))
             continue;
@@ -520,7 +523,7 @@ void SwitchPlugin()
         DHookDisableDetour(g_hDetTarget,		true, SelectTarget_Post);
         DHookDisableDetour(g_hDetLeap,			false, LeapJockey);
         
-        for( int i = 1; i < MaxClients; i++ )
+        for( int i = 1; i <= MaxClients; i++ )
         {
             if( g_iOwner[i] != 0 )
                 KillPet(i);
@@ -647,8 +650,10 @@ MRESReturn LeapJockey(int pThis, DHookParam hParams)
 
 void Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 {
-    for( int i = 1; i < MaxClients; i++ )
+    for( int i = 1; i <= MaxClients; i++ )
     {
+        g_bCarriedThisRound[i] = false;
+
         g_iOwner[i] = 0;
         if( IsClientInGame(i) )
             SDKHook(i, SDKHook_OnTakeDamage, ScaleFF);
@@ -657,7 +662,7 @@ void Event_Round_Start(Event event, const char[] name, bool dontBroadcast)
 
 void Event_Round_End(Event event, const char[] name, bool dontBroadcast)
 {
-    for( int i = 1; i < MaxClients; i++ )
+    for( int i = 1; i <= MaxClients; i++ )
     {
         if( IsClientInGame(i) )
             SDKUnhook(i, SDKHook_OnTakeDamage, ScaleFF);	
@@ -724,7 +729,7 @@ Action Event_Player_Replaced(Event event, const char[] name, bool dontBroadcast)
 {
     int client = GetClientOfUserId(event.GetInt("player"));
     int bot = GetClientOfUserId(event.GetInt("bot"));
-
+    
     for( int i = 1; i <= MaxClients; i++ )
     {
         if( g_iOwner[i] == client )
@@ -798,7 +803,7 @@ Action Event_Player_Hurt(Event event, const char[] name, bool dontBroadcast)
     if( attacker <= 0 || attacker > MaxClients || GetClientTeam(attacker) != 3 )
         return Plugin_Continue;
     
-    for( int i = 0; i < MaxClients; i++ )
+    for( int i = 0; i <= MaxClients; i++ )
     {
         if( g_iOwner[i] == client && g_iTarget[i] == 0 )
             g_iTarget[i] = attacker;
@@ -915,6 +920,13 @@ Action OnHurtPet(int victim, int& attacker, int& inflictor, float& damage, int& 
     return Plugin_Continue;
 }
 
+public Action RPG_Perks_OnShouldIgnoreEntireTeamTouch(int client)
+{
+    if(g_bCarriedThisRound[client] && L4D2_GetCurrentFinaleStage() != FINALE_GAUNTLET_ESCAPE)
+        return Plugin_Handled;
+
+    return Plugin_Continue;
+}
 
 public void RPG_Perks_OnCalculateDamage(int priority, int victim, int attacker, int inflictor, float &damage, int damagetype, int hitbox, int hitgroup, bool &bDontInterruptActions, bool &bDontStagger, bool &bDontInstakill, bool &bImmune)
 {   
@@ -1495,8 +1507,6 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     float fPetOrigin[3];
     GetEntPropVector(pet, Prop_Data, "m_vecAbsOrigin", fPetOrigin);
 
-    //float fPetFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(L4D_GetNearestNavArea(fPetOrigin)) / L4D2Direct_GetMapMaxFlowDistance()) * 100.0;
-
     bool bShouldUpdate = false;
 
     float fLastBracket = g_fLastBracket[pet];
@@ -1508,7 +1518,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     if(GetNextBracketPercent(fLastBracket) < GetNextBracketPercent(g_fLastBracket[pet]))
         bShouldUpdate = true;
 
-    //PrintToChatAll("%.1f %.1f %i %.1f", g_fLastBracket[pet], fPetFlowPercent, bShouldUpdate, L4D2Direct_GetMapMaxFlowDistance());
+    //float fPetFlowPercent = (L4D2Direct_GetTerrorNavAreaFlow(L4D_GetNearestNavArea(fPetOrigin)) / L4D2Direct_GetMapMaxFlowDistance()) * 100.0;
 
     if(g_iLastCommand[pet] != -2)
     {
@@ -1562,22 +1572,21 @@ stock bool GetCarryTargetOrigin(int pet, float fTargetOrigin[3] = NULL_VECTOR)
     GetEntPropVector(pet, Prop_Data, "m_vecAbsOrigin", fOrigin);
 
     int finale = FindEntityByClassname(-1, "trigger_finale");
-    int elevator = FindEntityByClassname(-1, "func_elevator");
+    //int elevator = FindEntityByClassname(-1, "func_elevator");
 
     //PrintToChatAll("%i %f %f %f", L4D2_NavAreaBuildPath(L4D_GetNearestNavArea(fOrigin), L4D_GetNearestNavArea(g_fTargetOrigin), 65535.0, 2, false), g_fTargetOrigin[0], g_fTargetOrigin[1], g_fTargetOrigin[2]);
 
+    if(GetPlayerCarry(pet) == -1)
+        return true;
 
-    if(elevator != -1)
-        return false;
-
-    else if(finale != -1)
+    if(finale != -1)
     {
         GetEntPropVector(finale, Prop_Data, "m_vecAbsOrigin", fTargetOrigin);
 
         return true;
     }
 
-    if(g_fLastBracket[pet] >= 100.0)
+    if(g_fLastBracket[pet] >= 100.0 || GetPlayerCarry(pet) != owner)
     {
         fTargetOrigin = g_fTargetOrigin;
 
@@ -1682,7 +1691,7 @@ Action CmdSayPet(int client, int args)
         GetCmdArg(1, sBuffer, sizeof(sBuffer));
         if( StrEqual( sBuffer, "remove") )
         {
-            for( int i = 1; i < MaxClients; i++ )
+            for( int i = 1; i <= MaxClients; i++ )
             {
                 if( g_iOwner[i] == client )
                     KillPet(i);
@@ -1917,6 +1926,7 @@ int GetPlayerCarry(int client)
 stock void StartCarryBetweenPlayers(int carrier, int carried)
 {
     g_iCarrier[carried] = carrier;
+    g_bCarriedThisRound[carried] = true;
 
     SetupInitialBracket(carrier);
 
@@ -1940,6 +1950,10 @@ stock void SetupInitialBracket(int carrier)
 
     // reduce by 0.01 to force calculation immediately by making next timer switch the bracket.
     g_fLastBracket[carrier] = GetNextBracketPercent(fPetFlowPercent) - 0.01;
+
+    if(g_fLastBracket[carrier] > 100.0)
+        g_fLastBracket[carrier] = 100.0;
+
 }
 stock void EndCarryBetweenPlayers(int carrier, int carried, bool bDontTeleport = false)
 {
@@ -2262,7 +2276,7 @@ stock float GetNextBracketPercent(float fLastBracket)
 
     float fBracketPercent = float(RoundToCeil((fLastBracket + 0.01) / float(iBracketJumps)) * iBracketJumps);
 
-    if(fBracketPercent >= 100.0)
+    if(fBracketPercent > 100.0)
         return 101.0;
 
     return fBracketPercent;
