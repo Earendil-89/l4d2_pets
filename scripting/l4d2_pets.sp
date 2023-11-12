@@ -914,7 +914,7 @@ Action OnHurtPet(int victim, int& attacker, int& inflictor, float& damage, int& 
     if(LibraryExists("RPG_Perks"))
         return Plugin_Continue;
 
-    if( attacker < 0 && attacker <= MaxClients && GetClientTeam(attacker) == 2 )
+    if(IsPlayer(attacker) && GetClientTeam(attacker) == 2 )
         return Plugin_Handled;
         
     return Plugin_Continue;
@@ -935,11 +935,14 @@ public void RPG_Perks_OnCalculateDamage(int priority, int victim, int attacker, 
 
 Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, float &damage, int damagetype, bool &bDontInterruptActions, bool &bDontStagger, bool &bDontInstakill, bool &bImmune)
 {
-    if(!IsPlayer(victim) || !IsPlayer(attacker))
+    if(!IsPlayer(victim))
+        return Plugin_Continue;
+
+    if(!IsPlayer(attacker) && !(damagetype & DMG_BURN))
         return Plugin_Continue;
 
     // If both attacker and defender are not pets, ignore damage calculation
-    else if(g_iOwner[victim] == 0 && g_iOwner[attacker] == 0)
+    else if(g_iOwner[victim] == 0 && (IsPlayer(attacker) && g_iOwner[attacker] == 0))
         return Plugin_Continue;
 
     if(priority == -10)
@@ -956,7 +959,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
     if(priority != 9)
         return Plugin_Continue;
 
-    else if(L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker))
+    else if(IsPlayer(attacker) && L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker))
     {
         damage *= g_hPetDmg.FloatValue;
         return Plugin_Changed;
@@ -979,13 +982,16 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
         }
     }
 
+    if(damagetype & DMG_FALL || damagetype & DMG_DROWN)
+        return Plugin_Continue;
+
     damage = 0.0;
     bDontInterruptActions = true;
     bDontInstakill = true;
     bDontStagger = true;
     bImmune = true;
 
-    if(g_iPetCarrySlowSurvivors != 0 && GetPlayerCarry(attacker) == -1 && L4D_GetClientTeam(victim) == L4DTeam_Survivor && IsNotCarryable(g_iOwner[attacker]) && !IsNotCarryable(victim))
+    if(IsPlayer(attacker) && g_iPetCarrySlowSurvivors != 0 && GetPlayerCarry(attacker) == -1 && L4D_GetClientTeam(victim) == L4DTeam_Survivor && IsNotCarryable(g_iOwner[attacker]) && !IsNotCarryable(victim))
     {
         StartCarryBetweenPlayers(attacker, victim);
         //SetPetBlindState(attacker, true);
@@ -1133,6 +1139,9 @@ Action ScaleFF(int victim, int& attacker, int& inflictor, float& damage, int& da
 * ========================================================================================= */
 Action ChangeVictim_Timer(Handle timer, int pet)
 {
+    
+    UpdatePetCollisionGroup(pet);
+
     float vPet[3];
     GetClientAbsOrigin(pet, vPet);
 
@@ -1762,7 +1771,8 @@ bool SpawnPet(int client, int zClass)
     SetEntProp(pet, Prop_Send, "m_nGlowRange", 5000);
     SetEntProp(pet, Prop_Send, "m_glowColorOverride", 39168);	// Glow color green
     if( zClass == 5 ) SetEntPropFloat(pet, Prop_Send, "m_flModelScale", g_hJockSize.FloatValue); // Only for jockeys
-    SetEntProp(pet, Prop_Send, "m_CollisionGroup", 1); // Prevent collisions with players
+
+    UpdatePetCollisionGroup(pet);
     SDKHook(pet, SDKHook_TraceAttack, OnShootPet);	// Allows bullets to pass through the pet
     SDKHook(pet, SDKHook_OnTakeDamage, OnHurtPet);	// Prevents pet from taking any type of damage from survivors
     SetEntPropEnt(pet, Prop_Send, "m_hOwnerEntity", client);
@@ -1779,6 +1789,21 @@ bool SpawnPet(int client, int zClass)
     return bReturn;
 }
 
+void UpdatePetCollisionGroup(int pet)
+{
+    if(L4D_IsInLastCheckpoint(pet))
+    {
+        // Debris, prevents collision and also prevents counting as a Special Infected for the Safe Room count.
+        // Debris makes the pet immune to trigger_hurt.
+        SetEntProp(pet, Prop_Send, "m_CollisionGroup", 1);
+    }
+    else
+    {
+        // Debris trigger, prevents collision but counts as a Special Infected in the same room.
+        // Unlike debris, pet is no longer immune to trigger_hurt
+        SetEntProp(pet, Prop_Send, "m_CollisionGroup", 2);
+    }
+}
 int GetSurvivorPets(int client)
 {
     int result = 0;
