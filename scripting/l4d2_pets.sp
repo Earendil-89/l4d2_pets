@@ -942,7 +942,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
         return Plugin_Continue;
 
     // If both attacker and defender are not pets, ignore damage calculation
-    else if(g_iOwner[victim] == 0 && (IsPlayer(attacker) && g_iOwner[attacker] == 0))
+    else if(g_iOwner[victim] == 0 && (!IsPlayer(attacker) || g_iOwner[attacker] == 0))
         return Plugin_Continue;
 
     if(priority == -10)
@@ -1269,7 +1269,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
         {
             for( int i = 1; i <= MaxClients; i++ )
             {
-                if(IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 2 && g_iCarrier[i] == -1 && !IsNotCarryable(i) && L4D_GetPinnedInfected(i) == 0 && (g_iPetCarrySlowSurvivors == 2 || !L4D_IsPlayerIncapacitated(i)))
+                if(IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 2 && g_iCarrier[i] == -1 && !IsNotCarryable(i) && (g_iPetCarrySlowSurvivors == 2 || !L4D_IsPlayerIncapacitated(i)))
                 {
                     GetClientAbsOrigin(i, vTarget);
                     GetClientAbsOrigin(owner, vPet);
@@ -1339,7 +1339,7 @@ Action ChangeVictim_Timer(Handle timer, int pet)
             }
         }
     }
-    else
+    if(nextTarget == 0)
     {
         if(g_iLastCommand[pet] == -2)
         {
