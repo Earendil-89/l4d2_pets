@@ -942,7 +942,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
         return Plugin_Continue;
 
     // If both attacker and defender are not pets, ignore damage calculation
-    else if(g_iOwner[victim] == 0 && (!IsPlayer(attacker) || g_iOwner[attacker] == 0))
+    else if(g_iOwner[victim] == 0 && (IsPlayer(attacker) && g_iOwner[attacker] == 0))
         return Plugin_Continue;
 
     if(priority == -10)
@@ -951,6 +951,12 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
 
         if(pinner != 0 && L4D2_GetPlayerZombieClass(pinner) == L4D2ZombieClass_Jockey)
         {
+            
+            damage = 0.0;
+            bDontInterruptActions = true;
+            bDontInstakill = true;
+            bDontStagger = true;
+            bImmune = true;
             SDKHooks_TakeDamage(pinner, inflictor, attacker, damage, damagetype|DMG_DROWNRECOVER, _, _, _, false);
 
             return Plugin_Stop;
@@ -959,7 +965,7 @@ Action OnCalculateDamage(int priority, int victim, int attacker, int inflictor, 
     if(priority != 9)
         return Plugin_Continue;
 
-    else if(IsPlayer(attacker) && L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker))
+    else if(IsPlayer(attacker) && L4D_GetClientTeam(victim) == L4D_GetClientTeam(attacker) && g_iOwner[victim] == 0)
     {
         damage *= g_hPetDmg.FloatValue;
         return Plugin_Changed;
