@@ -1360,6 +1360,16 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                 {
                     if( i != pet && IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 3 && g_iOwner[i] == 0)
                     {
+                        int ability = L4D_GetPlayerCustomAbility(i);
+
+                        if(GetEntProp(i, Prop_Send, "m_zombieClass") == view_as<int>(L4D2ZombieClass_Tank) && ability != -1)
+                        {
+                            if(GetEntPropFloat(ability, Prop_Send, "m_timestamp") > GetGameTime())
+                            {
+                                continue;
+                            }
+                        }
+
                         GetClientAbsOrigin(i, vTarget);
                         float tempDist = GetVectorDistance(vOwner, vTarget, true);
 
@@ -1503,6 +1513,16 @@ Action ChangeVictim_Timer(Handle timer, int pet)
                     {
                         if( i != pet && IsClientInGame(i) && IsPlayerAlive(i) && GetClientTeam(i) == 3 && g_iOwner[i] == 0)
                         {
+                            int ability = L4D_GetPlayerCustomAbility(i);
+
+                            if(GetEntProp(i, Prop_Send, "m_zombieClass") == view_as<int>(L4D2ZombieClass_Tank) && ability != -1)
+                            {
+                                if(GetEntPropFloat(ability, Prop_Send, "m_timestamp") > GetGameTime())
+                                {
+                                    continue;
+                                }
+                            }
+
                             GetClientAbsOrigin(i, vTarget);
                             float tempDist = GetVectorDistance(vOwner, vTarget, true);
                             if( tempDist < fDist )
@@ -1529,6 +1549,14 @@ Action ChangeVictim_Timer(Handle timer, int pet)
     float fFlowIncrease = 325.0;
 
     g_fLastBracket[pet] += (fFlowIncrease / L4D2Direct_GetMapMaxFlowDistance()) * 100.0 * g_fPetUpdateRate;
+
+    if(door != -1)
+    {
+        if(GetEntProp(door, Prop_Send, "m_spawnflags") & DOOR_FLAG_IGNORE_USE)
+        {
+            g_fLastBracket[pet] = 85.0;
+        }
+    }
 
     if(GetNextBracketPercent(fLastBracket) < GetNextBracketPercent(g_fLastBracket[pet]))
         bShouldUpdate = true;
@@ -1985,6 +2013,15 @@ stock void SetupInitialBracket(int carrier)
     if(g_fLastBracket[carrier] > 100.0)
         g_fLastBracket[carrier] = 100.0;
 
+    int door = L4D_GetCheckpointLast();
+
+    if(door != -1)
+    {
+        if(GetEntProp(door, Prop_Send, "m_spawnflags") & DOOR_FLAG_IGNORE_USE)
+        {
+            g_fLastBracket[carrier] = 85.0;
+        }
+    }
 }
 stock void EndCarryBetweenPlayers(int carrier, int carried, bool bDontTeleport = false)
 {
