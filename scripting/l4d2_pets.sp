@@ -1072,8 +1072,16 @@ public void RPG_Perks_OnGetSpecialInfectedClass(int priority, int client, L4D2Zo
     zclass = view_as<L4D2ZombieClassType>(GetEntProp(client, Prop_Send, "m_zombieClass"));
 }
 
+<<<<<<< Updated upstream
 public void RPG_Perks_OnZombiePlayerSpawned(int client)
 {
+=======
+public void RPG_Perks_OnZombiePlayerSpawned(int priority, int client, bool bApport)
+{
+    if(priority != 0)
+        return;
+        
+>>>>>>> Stashed changes
     if(g_iOwner[client] == 0)
         return;
 
